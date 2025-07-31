@@ -10,6 +10,7 @@ faiss-cpu
 astor
 bcrypt
 wordcloud
+scikit-surprise
 networkx
 plotly
 pillow
