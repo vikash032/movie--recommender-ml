@@ -54,14 +54,14 @@ st.markdown("""
             --text: #ffffff;
             --text-secondary: #b0b0b0;
         }
-        
+
         body, .main { 
             background-color: var(--background);
             color: var(--text);
             font-family: 'Poppins', sans-serif;
             overflow-x: hidden;
         }
-        
+
         /* Glassmorphism effect for cards */
         .glass-card {
             background: var(--card);
@@ -74,13 +74,13 @@ st.markdown("""
             margin: 15px 0;
             transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
-        
+
         .glass-card:hover {
             transform: translateY(-5px);
             box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.5);
             border: 1px solid rgba(124, 77, 255, 0.4);
         }
-        
+
         /* Feature cards */
         .feature-card {
             background: linear-gradient(135deg, rgba(124, 77, 255, 0.15), rgba(30, 136, 229, 0.15));
@@ -90,12 +90,12 @@ st.markdown("""
             border: 1px solid rgba(124, 77, 255, 0.3);
             transition: all 0.3s ease;
         }
-        
+
         .feature-card:hover {
             transform: scale(1.02);
             box-shadow: 0 10px 35px rgba(124, 77, 255, 0.25);
         }
-        
+
         /* Gradient buttons */
         .gradient-btn {
             background: linear-gradient(45deg, var(--primary), var(--accent));
@@ -109,13 +109,13 @@ st.markdown("""
             transition: all 0.3s ease;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
         }
-        
+
         .gradient-btn:hover {
             transform: translateY(-3px);
             box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
             background: linear-gradient(45deg, var(--accent), var(--primary));
         }
-        
+
         /* Tabs styling */
         .stTabs [data-baseweb="tab"] {
             background-color: transparent;
@@ -127,19 +127,19 @@ st.markdown("""
             transition: all 0.3s ease;
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
-        
+
         .stTabs [data-baseweb="tab"]:hover {
             background: rgba(30, 30, 30, 0.5);
             transform: translateY(-3px);
         }
-        
+
         .stTabs [aria-selected="true"] {
             background: linear-gradient(45deg, var(--primary), var(--accent));
             color: white;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
             border: none;
         }
-        
+
         /* Input fields */
         .stTextInput>div>div>input, 
         .stSelectbox>div>div>select,
@@ -150,17 +150,17 @@ st.markdown("""
             border-radius: 12px !important;
             padding: 12px 15px !important;
         }
-        
+
         /* Slider styling */
         .stSlider>div>div>div>div {
             background: linear-gradient(90deg, var(--primary), var(--accent)) !important;
         }
-        
+
         /* Progress bar */
         .stProgress>div>div>div>div {
             background: linear-gradient(90deg, var(--primary), var(--accent)) !important;
         }
-        
+
         /* Custom movie card */
         .movie-card {
             background: var(--card);
@@ -173,7 +173,7 @@ st.markdown("""
             position: relative;
             overflow: hidden;
         }
-        
+
         .movie-card:before {
             content: '';
             position: absolute;
@@ -183,12 +183,12 @@ st.markdown("""
             height: 4px;
             background: linear-gradient(90deg, var(--primary), var(--accent));
         }
-        
+
         .movie-card:hover {
             transform: translateY(-5px);
             box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
         }
-        
+
         .tag {
             display: inline-block;
             background: rgba(124, 77, 255, 0.2);
@@ -200,14 +200,14 @@ st.markdown("""
             color: var(--text);
             border: 1px solid rgba(124, 77, 255, 0.3);
         }
-        
+
         .similarity-bar {
             height: 8px;
             background: linear-gradient(90deg, var(--secondary), var(--accent));
             border-radius: 4px;
             margin: 12px 0;
         }
-        
+
         /* Neon title */
         .neon-title {
             text-shadow: 0 0 10px var(--primary), 
@@ -215,7 +215,7 @@ st.markdown("""
                          0 0 30px var(--accent);
             animation: flicker 1.5s infinite alternate;
         }
-        
+
         @keyframes flicker {
             0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% {
                 text-shadow: 0 0 10px var(--primary),
@@ -231,7 +231,7 @@ st.markdown("""
                 text-shadow: none;
             }
         }
-        
+
         /* Animated background */
         .animated-bg {
             position: fixed;
@@ -244,13 +244,13 @@ st.markdown("""
             background-size: 400% 400%;
             animation: gradientBG 15s ease infinite;
         }
-        
+
         @keyframes gradientBG {
             0% { background-position: 0% 50% }
             50% { background-position: 100% 50% }
             100% { background-position: 0% 50% }
         }
-        
+
         /* Particle background */
         .particles {
             position: fixed;
@@ -261,14 +261,14 @@ st.markdown("""
             z-index: -1;
             pointer-events: none;
         }
-        
+
         .particle {
             position: absolute;
             border-radius: 50%;
             background: rgba(124, 77, 255, 0.3);
             animation: float 15s infinite linear;
         }
-        
+
         @keyframes float {
             0% {
                 transform: translateY(0) translateX(0) rotate(0deg);
@@ -279,7 +279,7 @@ st.markdown("""
                 opacity: 0;
             }
         }
-        
+
         /* 3D Poster Effects */
         .poster-container {
             transition: transform 0.5s ease;
@@ -287,17 +287,17 @@ st.markdown("""
             perspective: 1000px;
             margin-bottom: 15px;
         }
-        
+
         .poster-container:hover {
             transform: perspective(1000px) rotateY(10deg) rotateX(5deg) translateZ(30px);
         }
-        
+
         .poster-img {
             width: 100%;
             border-radius: 10px;
             box-shadow: 0 10px 20px rgba(0,0,0,0.3);
         }
-        
+
         /* Mood filter colors */
         .mood-happy { background: linear-gradient(135deg, #43cea2, #185a9d); }
         .mood-exciting { background: linear-gradient(135deg, #ff5e62, #ff9966); }
@@ -305,7 +305,7 @@ st.markdown("""
         .mood-thrilling { background: linear-gradient(135deg, #8e2de2, #4a00e0); }
         .mood-thoughtful { background: linear-gradient(135deg, #56ab2f, #a8e063); }
         .mood-calm { background: linear-gradient(135deg, #00c9ff, #92fe9d); }
-        
+
         /* Responsive adjustments */
         @media only screen and (max-width: 768px) {
             .stTabs [data-baseweb="tab"] {
@@ -313,13 +313,14 @@ st.markdown("""
                 margin: 5px;
                 font-size: 12px;
             }
-            
+
             .movie-card {
                 padding: 15px;
             }
         }
     </style>
 """, unsafe_allow_html=True)
+
 
 # Add animated background
 st.markdown('<div class="animated-bg"></div>', unsafe_allow_html=True)
