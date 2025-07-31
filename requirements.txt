@@ -1,6 +1,6 @@
 pip>=25.2
 
-# Core ML & NLP
+# Core ML
 scikit-learn
 sentence-transformers
 faiss-cpu
@@ -10,17 +10,9 @@ scipy
 torch
 torchvision
 torchaudio
-tensorflow
+tensorflow==2.15.0
 keras
 scikit-surprise
-
-# Web + Auth
-streamlit
-streamlit-authenticator
-requests
-beautifulsoup4
-tmdbv3api
-bcrypt
 
 # Visualization
 matplotlib
@@ -30,5 +22,13 @@ wordcloud
 networkx
 pillow
 
+# Web + Auth
+streamlit
+streamlit-authenticator
+requests
+beautifulsoup4
+tmdbv3api
+bcrypt
+
 # Utility
-asto
+astor
