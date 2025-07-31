@@ -163,13 +163,14 @@ def load_model():
     return SentenceTransformer('all-MiniLM-L6-v2')
 _model = load_model()
 
-@st.cache_data(ttl=3600*24)  # Cache for 24 hours
-def fetch_movie_details(movie_id, api_key="623d4838545cb2f9581d85baa9c89ed8"):
+@st.cache_data(ttl=3600*24)
+def fetch_movie_details(movie_id):
     """Fetch detailed movie info including credits"""
     try:
+        api_key = st.secrets["TMDB_API_KEY"]
         url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={api_key}&append_to_response=credits"
         data = requests.get(url).json()
-        
+
         # Extract director
         director = "Unknown"
         if 'credits' in data and 'crew' in data['credits']:
@@ -177,21 +178,21 @@ def fetch_movie_details(movie_id, api_key="623d4838545cb2f9581d85baa9c89ed8"):
                 if person['job'] == 'Director':
                     director = person['name']
                     break
-        
+
         # Extract top 3 actors
         actors = []
         if 'credits' in data and 'cast' in data['credits']:
             cast = data['credits']['cast']
             actors = [person['name'] for person in cast[:3]]
-        
+
         # Extract genres
         genres = []
         if 'genres' in data:
             genres = [g['name'] for g in data['genres']]
-        
-        # ADD POSTER PATH
+
+        # Poster
         poster_path = data.get('poster_path', None)
-        
+
         return {
             'id': movie_id,
             'title': data.get('title', 'Unknown Title'),
@@ -204,22 +205,24 @@ def fetch_movie_details(movie_id, api_key="623d4838545cb2f9581d85baa9c89ed8"):
             'genres': ', '.join(genres),
             'director': director,
             'actors': actors,
-            'poster_path': poster_path,  # ADD THIS
-            'original_language': data.get('original_language', 'en')  # NEW: Track language
+            'poster_path': poster_path,
+            'original_language': data.get('original_language', 'en')
         }
     except Exception as e:
         st.error(f"Error fetching details for movie {movie_id}: {str(e)}")
         return None
 
-# UPDATED: Fetch MORE Bollywood movies
-@st.cache_data(ttl=3600*24)  # Cache for 24 hours
-def fetch_popular_movies_by_year(years, api_key="623d4838545cb2f9581d85baa9c89ed8", movies_per_year=50):
-    """Fetch popular movies for multiple years with minimal data"""
+
+@st.cache_data(ttl=3600*24)
+def fetch_popular_movies_by_year(years, movies_per_year=50):
+    """Fetch popular movies for multiple years"""
+    api_key = st.secrets["TMDB_API_KEY"]
     all_movies = []
+
     for year in years:
         try:
-            # Fetch Hollywood movies
-            url = f"https://api.themoviedb.org/3/discover/movie"
+            # Hollywood movies
+            url = "https://api.themoviedb.org/3/discover/movie"
             params = {
                 'api_key': api_key,
                 'primary_release_year': year,
@@ -235,18 +238,17 @@ def fetch_popular_movies_by_year(years, api_key="623d4838545cb2f9581d85baa9c89ed
                 'poster_path': m.get('poster_path', None),
                 'is_bollywood': False
             } for m in movies])
-            
-            # NEW: Fetch MORE Bollywood movies - increased to 40 per year
+
+            # Bollywood movies
             bollywood_params = {
                 'api_key': api_key,
                 'primary_release_year': year,
                 'sort_by': 'popularity.desc',
                 'page': 1,
-                'with_original_language': 'hi'  # Hindi language
+                'with_original_language': 'hi'
             }
             bollywood_response = requests.get(url, params=bollywood_params).json()
-            # Get up to 40 Bollywood movies per year
-            bollywood_movies = bollywood_response.get('results', [])[:40]
+            bollywood_movies = bollywood_response.get('results', [])[:min(20, movies_per_year//2)]
             all_movies.extend([{
                 'id': m['id'],
                 'title': m.get('title', 'Unknown Title'),
@@ -254,15 +256,16 @@ def fetch_popular_movies_by_year(years, api_key="623d4838545cb2f9581d85baa9c89ed
                 'poster_path': m.get('poster_path', None),
                 'is_bollywood': True
             } for m in bollywood_movies])
-            
+
         except Exception as e:
             st.error(f"Error fetching movies for {year}: {str(e)}")
-    
+
     return all_movies
+
 
 # NEW: Fetch movies by popular Bollywood actors
 @st.cache_data(ttl=3600*24)  # Cache for 24 hours
-def fetch_movies_by_actor(actor_name, api_key="623d4838545cb2f9581d85baa9c89ed8", max_movies=50):
+def fetch_movies_by_actor(actor_name, api_key = st.secrets["TMDB_API_KEY"], max_movies=50):
     """Fetch movies by a specific actor"""
     try:
         # First, search for the actor
@@ -302,7 +305,7 @@ def load_data():
     status_text.text("Loading movie data... 0%")
     
     # Fetch popular movies by year (2000-2025) - now includes Bollywood
-    years = list(range(2000, 2026))
+    years = list(range(2000, 2025))
     movies_list = fetch_popular_movies_by_year(years, movies_per_year=50)
     
     # NEW: Add movies from popular Bollywood actors
@@ -342,7 +345,7 @@ def load_data():
     movies_df = pd.DataFrame(detailed_movies)
     
     # Load ratings data
-    ratings_df = pd.read_csv('/Users/welcomemac/Downloads/ratings.csv')
+    ratings_df = pd.read_csv('ratings.csv')
     
     # Precompute TF-IDF and similarity
     tfidf = TfidfVectorizer(stop_words='english')
