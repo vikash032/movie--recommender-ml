@@ -1,36 +1,34 @@
 pip>=25.2
+
+# Core ML & NLP
 scikit-learn
 sentence-transformers
-requests
 faiss-cpu
-astor
-bcrypt
-wordcloud
-networkx
-plotly
-pillow
+pandas
+numpy
 scipy
 torch
 torchvision
 torchaudio
-scikit-surprise
-streamlit
-pandas
-numpy
-scikit-learn
-matplotlib
-seaborn
 tensorflow
 keras
+scikit-surprise
+
+# Web + Auth
+streamlit
+streamlit-authenticator
 requests
 beautifulsoup4
 tmdbv3api
-streamlit-authenticator
+bcrypt
 
-# Fix common troublemakers:
-pygments==2.19.0
-mdurl==0.1.2
-markdown-it-py==3.0.0
-rich==14.1.0
+# Visualization
+matplotlib
+seaborn
+plotly
+wordcloud
+networkx
+pillow
 
-
+# Utility
+asto
