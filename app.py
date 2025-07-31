@@ -45,7 +45,279 @@ st.set_page_config(page_title="🎬 Movie Recommender Pro", layout="wide", page_
 # Custom CSS with stunning UI enhancements
 st.markdown("""
     <style>
-        /* ... (existing CSS remains unchanged) ... */
+        :root {
+            --primary: #1e88e5;
+            --secondary: #ff4081;
+            --accent: #7c4dff;
+            --background: #0f0c29;
+            --card: rgba(30, 30, 46, 0.8);
+            --text: #ffffff;
+            --text-secondary: #b0b0b0;
+        }
+        
+        body, .main { 
+            background-color: var(--background);
+            color: var(--text);
+            font-family: 'Poppins', sans-serif;
+            overflow-x: hidden;
+        }
+        
+        /* Glassmorphism effect for cards */
+        .glass-card {
+            background: var(--card);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.36);
+            padding: 20px;
+            margin: 15px 0;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        
+        .glass-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(124, 77, 255, 0.4);
+        }
+        
+        /* Feature cards */
+        .feature-card {
+            background: linear-gradient(135deg, rgba(124, 77, 255, 0.15), rgba(30, 136, 229, 0.15));
+            border-radius: 16px;
+            padding: 25px;
+            margin: 15px 0;
+            border: 1px solid rgba(124, 77, 255, 0.3);
+            transition: all 0.3s ease;
+        }
+        
+        .feature-card:hover {
+            transform: scale(1.02);
+            box-shadow: 0 10px 35px rgba(124, 77, 255, 0.25);
+        }
+        
+        /* Gradient buttons */
+        .gradient-btn {
+            background: linear-gradient(45deg, var(--primary), var(--accent));
+            color: white !important;
+            border: none;
+            border-radius: 50px;
+            padding: 10px 25px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        
+        .gradient-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+            background: linear-gradient(45deg, var(--accent), var(--primary));
+        }
+        
+        /* Tabs styling */
+        .stTabs [data-baseweb="tab"] {
+            background-color: transparent;
+            padding: 15px 25px;
+            margin: 0 5px;
+            border-radius: 12px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .stTabs [data-baseweb="tab"]:hover {
+            background: rgba(30, 30, 30, 0.5);
+            transform: translateY(-3px);
+        }
+        
+        .stTabs [aria-selected="true"] {
+            background: linear-gradient(45deg, var(--primary), var(--accent));
+            color: white;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+            border: none;
+        }
+        
+        /* Input fields */
+        .stTextInput>div>div>input, 
+        .stSelectbox>div>div>select,
+        .stTextArea>div>div>textarea {
+            background: rgba(30, 30, 46, 0.6) !important;
+            color: var(--text) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border-radius: 12px !important;
+            padding: 12px 15px !important;
+        }
+        
+        /* Slider styling */
+        .stSlider>div>div>div>div {
+            background: linear-gradient(90deg, var(--primary), var(--accent)) !important;
+        }
+        
+        /* Progress bar */
+        .stProgress>div>div>div>div {
+            background: linear-gradient(90deg, var(--primary), var(--accent)) !important;
+        }
+        
+        /* Custom movie card */
+        .movie-card {
+            background: var(--card);
+            border-radius: 16px;
+            padding: 20px;
+            margin: 15px 0;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            border-left: 4px solid var(--accent);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .movie-card:before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+        }
+        
+        .movie-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+        }
+        
+        .tag {
+            display: inline-block;
+            background: rgba(124, 77, 255, 0.2);
+            border-radius: 20px;
+            padding: 6px 15px;
+            margin-right: 8px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+            color: var(--text);
+            border: 1px solid rgba(124, 77, 255, 0.3);
+        }
+        
+        .similarity-bar {
+            height: 8px;
+            background: linear-gradient(90deg, var(--secondary), var(--accent));
+            border-radius: 4px;
+            margin: 12px 0;
+        }
+        
+        /* Neon title */
+        .neon-title {
+            text-shadow: 0 0 10px var(--primary), 
+                         0 0 20px var(--primary), 
+                         0 0 30px var(--accent);
+            animation: flicker 1.5s infinite alternate;
+        }
+        
+        @keyframes flicker {
+            0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% {
+                text-shadow: 0 0 10px var(--primary),
+                             0 0 20px var(--primary),
+                             0 0 30px var(--accent),
+                             0 0 40px var(--accent),
+                             0 0 70px var(--accent),
+                             0 0 80px var(--accent),
+                             0 0 100px var(--accent),
+                             0 0 150px var(--accent);
+            }
+            20%, 24%, 55% {
+                text-shadow: none;
+            }
+        }
+        
+        /* Animated background */
+        .animated-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            background: linear-gradient(-45deg, #0f0c29, #302b63, #24243e, #1e1e1e);
+            background-size: 400% 400%;
+            animation: gradientBG 15s ease infinite;
+        }
+        
+        @keyframes gradientBG {
+            0% { background-position: 0% 50% }
+            50% { background-position: 100% 50% }
+            100% { background-position: 0% 50% }
+        }
+        
+        /* Particle background */
+        .particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            pointer-events: none;
+        }
+        
+        .particle {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(124, 77, 255, 0.3);
+            animation: float 15s infinite linear;
+        }
+        
+        @keyframes float {
+            0% {
+                transform: translateY(0) translateX(0) rotate(0deg);
+                opacity: 1;
+            }
+            100% {
+                transform: translateY(-1000px) translateX(1000px) rotate(720deg);
+                opacity: 0;
+            }
+        }
+        
+        /* 3D Poster Effects */
+        .poster-container {
+            transition: transform 0.5s ease;
+            transform-style: preserve-3d;
+            perspective: 1000px;
+            margin-bottom: 15px;
+        }
+        
+        .poster-container:hover {
+            transform: perspective(1000px) rotateY(10deg) rotateX(5deg) translateZ(30px);
+        }
+        
+        .poster-img {
+            width: 100%;
+            border-radius: 10px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+        }
+        
+        /* Mood filter colors */
+        .mood-happy { background: linear-gradient(135deg, #43cea2, #185a9d); }
+        .mood-exciting { background: linear-gradient(135deg, #ff5e62, #ff9966); }
+        .mood-romantic { background: linear-gradient(135deg, #ff6b6b, #ff8e8e); }
+        .mood-thrilling { background: linear-gradient(135deg, #8e2de2, #4a00e0); }
+        .mood-thoughtful { background: linear-gradient(135deg, #56ab2f, #a8e063); }
+        .mood-calm { background: linear-gradient(135deg, #00c9ff, #92fe9d); }
+        
+        /* Responsive adjustments */
+        @media only screen and (max-width: 768px) {
+            .stTabs [data-baseweb="tab"] {
+                padding: 12px 15px;
+                margin: 5px;
+                font-size: 12px;
+            }
+            
+            .movie-card {
+                padding: 15px;
+            }
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -56,7 +328,34 @@ st.markdown('<div class="animated-bg"></div>', unsafe_allow_html=True)
 st.markdown("""
     <div class="particles" id="particles"></div>
     <script>
-        /* ... (existing JavaScript remains unchanged) ... */
+        document.addEventListener('DOMContentLoaded', function() {
+            const container = document.getElementById('particles');
+            const particleCount = 30;
+            
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.classList.add('particle');
+                
+                // Random size
+                const size = Math.random() * 10 + 2;
+                particle.style.width = `${size}px`;
+                particle.style.height = `${size}px`;
+                
+                // Random position
+                particle.style.left = `${Math.random() * 100}%`;
+                particle.style.top = `${Math.random() * 100}%`;
+                
+                // Random animation duration
+                const duration = Math.random() * 20 + 10;
+                particle.style.animationDuration = `${duration}s`;
+                
+                // Random animation delay
+                const delay = Math.random() * 5;
+                particle.style.animationDelay = `${delay}s`;
+                
+                container.appendChild(particle);
+            }
+        });
     </script>
 """, unsafe_allow_html=True)
 
@@ -163,14 +462,13 @@ def load_model():
     return SentenceTransformer('all-MiniLM-L6-v2')
 _model = load_model()
 
-@st.cache_data(ttl=3600*24)
-def fetch_movie_details(movie_id):
+@st.cache_data(ttl=3600*24)  # Cache for 24 hours
+def fetch_movie_details(movie_id, api_key = st.secrets["TMDB_API_KEY"]):
     """Fetch detailed movie info including credits"""
     try:
-        api_key = st.secrets["TMDB_API_KEY"]
         url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={api_key}&append_to_response=credits"
         data = requests.get(url).json()
-
+        
         # Extract director
         director = "Unknown"
         if 'credits' in data and 'crew' in data['credits']:
@@ -178,21 +476,21 @@ def fetch_movie_details(movie_id):
                 if person['job'] == 'Director':
                     director = person['name']
                     break
-
+        
         # Extract top 3 actors
         actors = []
         if 'credits' in data and 'cast' in data['credits']:
             cast = data['credits']['cast']
             actors = [person['name'] for person in cast[:3]]
-
+        
         # Extract genres
         genres = []
         if 'genres' in data:
             genres = [g['name'] for g in data['genres']]
-
-        # Poster
+        
+        # ADD POSTER PATH
         poster_path = data.get('poster_path', None)
-
+        
         return {
             'id': movie_id,
             'title': data.get('title', 'Unknown Title'),
@@ -205,24 +503,22 @@ def fetch_movie_details(movie_id):
             'genres': ', '.join(genres),
             'director': director,
             'actors': actors,
-            'poster_path': poster_path,
-            'original_language': data.get('original_language', 'en')
+            'poster_path': poster_path,  # ADD THIS
+            'original_language': data.get('original_language', 'en')  # NEW: Track language
         }
     except Exception as e:
         st.error(f"Error fetching details for movie {movie_id}: {str(e)}")
         return None
 
-
-@st.cache_data(ttl=3600*24)
-def fetch_popular_movies_by_year(years, movies_per_year=50):
-    """Fetch popular movies for multiple years"""
-    api_key = st.secrets["TMDB_API_KEY"]
+# UPDATED: Fetch both Hollywood and Bollywood movies
+@st.cache_data(ttl=3600*24)  # Cache for 24 hours
+def fetch_popular_movies_by_year(years, api_key = st.secrets["TMDB_API_KEY"], movies_per_year=50):
+    """Fetch popular movies for multiple years with minimal data"""
     all_movies = []
-
     for year in years:
         try:
-            # Hollywood movies
-            url = "https://api.themoviedb.org/3/discover/movie"
+            # Fetch Hollywood movies
+            url = f"https://api.themoviedb.org/3/discover/movie"
             params = {
                 'api_key': api_key,
                 'primary_release_year': year,
@@ -236,16 +532,16 @@ def fetch_popular_movies_by_year(years, movies_per_year=50):
                 'title': m.get('title', 'Unknown Title'),
                 'release_date': m.get('release_date', f'{year}-01-01'),
                 'poster_path': m.get('poster_path', None),
-                'is_bollywood': False
+                'is_bollywood': False  # NEW: Flag for Hollywood movies
             } for m in movies])
-
-            # Bollywood movies
+            
+            # NEW: Fetch Bollywood movies
             bollywood_params = {
                 'api_key': api_key,
                 'primary_release_year': year,
                 'sort_by': 'popularity.desc',
                 'page': 1,
-                'with_original_language': 'hi'
+                'with_original_language': 'hi'  # Hindi language
             }
             bollywood_response = requests.get(url, params=bollywood_params).json()
             bollywood_movies = bollywood_response.get('results', [])[:min(20, movies_per_year//2)]
@@ -254,48 +550,13 @@ def fetch_popular_movies_by_year(years, movies_per_year=50):
                 'title': m.get('title', 'Unknown Title'),
                 'release_date': m.get('release_date', f'{year}-01-01'),
                 'poster_path': m.get('poster_path', None),
-                'is_bollywood': True
+                'is_bollywood': True  # NEW: Flag for Bollywood movies
             } for m in bollywood_movies])
-
+            
         except Exception as e:
             st.error(f"Error fetching movies for {year}: {str(e)}")
-
+    
     return all_movies
-
-
-# NEW: Fetch movies by popular Bollywood actors
-@st.cache_data(ttl=3600*24)  # Cache for 24 hours
-def fetch_movies_by_actor(actor_name, api_key = st.secrets["TMDB_API_KEY"], max_movies=50):
-    """Fetch movies by a specific actor"""
-    try:
-        # First, search for the actor
-        search_url = f"https://api.themoviedb.org/3/search/person?api_key={api_key}&query={actor_name}"
-        search_response = requests.get(search_url).json()
-        
-        if not search_response.get('results'):
-            return []
-        
-        actor_id = search_response['results'][0]['id']
-        
-        # Get actor's movie credits
-        credits_url = f"https://api.themoviedb.org/3/person/{actor_id}/movie_credits?api_key={api_key}"
-        credits_response = requests.get(credits_url).json()
-        
-        movies = []
-        for movie in credits_response.get('cast', [])[:max_movies]:
-            movies.append({
-                'id': movie['id'],
-                'title': movie.get('title', 'Unknown Title'),
-                'release_date': movie.get('release_date', ''),
-                'poster_path': movie.get('poster_path', None),
-                'is_bollywood': True
-            })
-        
-        return movies
-        
-    except Exception as e:
-        st.error(f"Error fetching movies for actor {actor_name}: {str(e)}")
-        return []
 
 @st.cache_data
 def load_data():
@@ -305,25 +566,8 @@ def load_data():
     status_text.text("Loading movie data... 0%")
     
     # Fetch popular movies by year (2000-2025) - now includes Bollywood
-    years = list(range(2000, 2025))
+    years = list(range(2000, 2026))
     movies_list = fetch_popular_movies_by_year(years, movies_per_year=50)
-    
-    # NEW: Add movies from popular Bollywood actors
-    popular_actors = [
-        "Shah Rukh Khan", "Aamir Khan", "Salman Khan", "Akshay Kumar", "Hrithik Roshan",
-        "Ranbir Kapoor", "Ranveer Singh", "Deepika Padukone", "Priyanka Chopra", "Alia Bhatt",
-        "Katrina Kaif", "Kareena Kapoor", "Ajay Devgn", "Varun Dhawan", "Ayushmann Khurrana"
-    ]
-    
-    status_text.text("Adding popular Bollywood actors...")
-    for actor in popular_actors:
-        actor_movies = fetch_movies_by_actor(actor)
-        movies_list.extend(actor_movies)
-        # Update progress
-        progress = (popular_actors.index(actor) + 1) / len(popular_actors)
-        progress_bar.progress(progress)
-        status_text.text(f"Loading {actor} movies... {int(progress*100)}%")
-    
     total_movies = len(movies_list)
     
     # Fetch details for each movie with progress
@@ -514,10 +758,113 @@ dl_model = train_dl_model()
 # ----------------- HYBRID RECOMMENDER -----------------
 def advanced_hybrid_recommendation(title=None, user_id=None, top_n=10, selected_genres=None, 
                                   sort_by="latest", actor_director=None, mood=None):
-    # ... (existing implementation remains unchanged) ...
+    # If no title provided, use user preferences or default to popular movies
+    if title is None:
+        # If user has preferences, find similar to user vector
+        if st.session_state.user_vector is not None and not np.all(st.session_state.user_vector == 0):
+            # Search for similar movies to user vector
+            query_vector = st.session_state.user_vector.reshape(1, -1)
+            _, indices = precomputed['faiss_index'].search(query_vector, top_n*3)
+            
+            # Get movie details
+            results = movies_df.iloc[indices[0]]
+            
+            # Apply genre filter
+            if selected_genres:
+                results = results[results['genres'].apply(lambda g: any(genre in g for genre in selected_genres))]
+            
+            # Sort by release date
+            if sort_by == "latest":
+                results = results.sort_values("release_date", ascending=False)
+            elif sort_by == "oldest":
+                results = results.sort_values("release_date", ascending=True)
+                
+            return results.head(top_n)
+        else:
+            # Default to popular movies if no preferences
+            results = movies_df.sort_values('weighted_score', ascending=False)
+            
+            # Apply genre filter
+            if selected_genres:
+                results = results[results['genres'].apply(lambda g: any(genre in g for genre in selected_genres))]
+            
+            # Sort by release date
+            if sort_by == "latest":
+                results = results.sort_values("release_date", ascending=False)
+            elif sort_by == "oldest":
+                results = results.sort_values("release_date", ascending=True)
+                
+            return results.head(top_n)
+    
+    # Validate movie title exists
+    if title not in precomputed['indices']:
+        return pd.DataFrame()
+    
+    idx = precomputed['indices'][title]
+    sim_scores = list(enumerate(precomputed['cosine_sim'][idx]))
+    
+    # Collaborative filtering predictions
+    if user_id:
+        predictions = []
+        for i, row in movies_df.iterrows():
+            pred = dl_model.predict(user_id, row['id'])
+            predictions.append((i, pred.est))
+    else:
+        predictions = [(i, 0) for i in range(len(movies_df))]
+    
+    # Combine scores
+    combined = []
+    max_content = max(score for _, score in sim_scores)
+    max_collab = max(score for _, score in predictions) if user_id else 1
+    
+    for (i, content_score), (_, collab_score) in zip(sim_scores, predictions):
+        if user_id:
+            combined_score = (0.6 * (content_score / max_content)) + (0.4 * (collab_score / max_collab))
+        else:
+            combined_score = content_score / max_content
+        combined.append((i, combined_score))
+    
+    # Sort and get top recommendations
+    combined.sort(key=lambda x: x[1], reverse=True)
+    top_indices = [i[0] for i in combined[1:top_n*2]]  # Get extra for filtering
+    results = movies_df.iloc[top_indices]
+    
+    # Apply genre filter
+    if selected_genres:
+        results = results[results['genres'].apply(lambda g: any(genre in g for genre in selected_genres))]
+    
+    # Apply actor/director filter
+    if actor_director:
+        # Search for actor or director name
+        results = results[
+            (results['director'].str.contains(actor_director, case=False)) |
+            (results['actors'].apply(lambda x: any(actor_director.lower() in actor.lower() for actor in x) if isinstance(x, list) else False))
+        ]
+    
+    # Apply mood filter
+    if mood:
+        mood_mapping = {
+            'happy': ['Comedy', 'Animation', 'Family', 'Music'],
+            'exciting': ['Action', 'Adventure', 'Thriller', 'Science Fiction'],
+            'romantic': ['Romance', 'Drama'],
+            'thrilling': ['Horror', 'Mystery', 'Thriller'],
+            'thoughtful': ['Drama', 'History', 'Documentary'],
+            'calm': ['Drama', 'Romance', 'Family']
+        }
+        mood_genres = mood_mapping.get(mood, [])
+        if mood_genres:
+            results = results[results['genres'].apply(lambda g: any(genre in g for genre in mood_genres))]
+    
+    # Sort by release date
+    if sort_by == "latest":
+        results = results.sort_values("release_date", ascending=False)
+    elif sort_by == "oldest":
+        results = results.sort_values("release_date", ascending=True)
+        
+    return results.head(top_n)
 
 # ----------------- LOG EVENTS -----------------
- def log_event(user, movie, action):
+def log_event(user, movie, action):
     os.makedirs('user_data', exist_ok=True)
     log_file = f'user_data/{user}_log.csv'
     
@@ -608,11 +955,26 @@ def movie_card(movie, show_feedback=True, context="default", index=0, similarity
 
 # ----------------- FIND MOVIE BY TITLE -----------------
 def find_movie_by_title(title, movies_df):
-    # ... (existing implementation remains unchanged) ...
+    # Exact match
+    if title in movies_df['title'].values:
+        return title
+    
+    # Fuzzy match
+    matches = movies_df[movies_df['title'].str.contains(title, case=False)]
+    if not matches.empty:
+        return matches.iloc[0]['title']
+    
+    # Try fuzzy matching
+    all_titles = movies_df['title'].tolist()
+    match = process.extractOne(title, all_titles)
+    if match and match[1] > 80:  # confidence threshold
+        return match[0]
+    
+    return None
 
 # ----------------- TRENDING MOVIES -----------------
- @st.cache_data(ttl=3600)  # cache for 1 hour
- def get_trending_movies():
+@st.cache_data(ttl=3600)  # cache for 1 hour
+def get_trending_movies():
     return movies_df.sort_values('weighted_score', ascending=False).head(10)
 
 # ----------------- GET USER PREFERRED GENRES -----------------
@@ -754,16 +1116,15 @@ def main():
             
             # Bollywood section - FIXED TO ACTUALLY SHOW BOLLYWOOD MOVIES
             st.markdown("### 🎬 Bollywood Spotlight")
-            bollywood_movies = movies_df[movies_df['is_bollywood'] == True].sort_values('weighted_score', ascending=False).head(15)
+            bollywood_movies = movies_df[movies_df['is_bollywood'] == True].sort_values('weighted_score', ascending=False).head(10)
             
             if not bollywood_movies.empty:
                 cols = st.columns(5)
                 for idx, (_, row) in enumerate(bollywood_movies.iterrows()):
-                    if idx < 15:  # Limit to 15 movies
-                        with cols[idx % 5]:
-                            display_poster(row.get('poster_path'), class_name="poster-container", width=150)
-                            st.caption(f"**{row['title']}**")
-                            st.progress(row['weighted_score'] / 10, text=f"⭐ {row['vote_average']}")
+                    with cols[idx % 5]:
+                        display_poster(row.get('poster_path'), class_name="poster-container", width=150)
+                        st.caption(f"**{row['title']}**")
+                        st.progress(row['weighted_score'] / 10, text=f"⭐ {row['vote_average']}")
             else:
                 st.info("No Bollywood movies available at the moment")
             
@@ -1286,6 +1647,7 @@ def main():
                 st.success("You have been logged out. Please login again.")
                 time.sleep(2)
                 st.rerun()
+
 
 # ----------------- LOGIN + SIGNUP FUNCTION -----------------
 def login_or_signup():
