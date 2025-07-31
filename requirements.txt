@@ -1,8 +1,4 @@
-streamlit
-pandas
-numpy
-matplotlib
-seaborn
+pip>=25.2
 scikit-learn
 sentence-transformers
 requests
@@ -10,7 +6,6 @@ faiss-cpu
 astor
 bcrypt
 wordcloud
-scikit-surprise
 networkx
 plotly
 pillow
@@ -18,4 +13,24 @@ scipy
 torch
 torchvision
 torchaudio
+scikit-surprise
+streamlit
+pandas
+numpy
+scikit-learn
+matplotlib
+seaborn
+tensorflow
+keras
+requests
+beautifulsoup4
+tmdbv3api
+streamlit-authenticator
+
+# Fix common troublemakers:
+pygments==2.19.0
+mdurl==0.1.2
+markdown-it-py==3.0.0
+rich==14.1.0
+
 
