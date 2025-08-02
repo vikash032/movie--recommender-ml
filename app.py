@@ -741,7 +741,7 @@ def load_data():
     movies_df = movies_df.drop_duplicates(subset=['id'])
     
     # Load ratings data
-    ratings_df = pd.read_csv('/Users/welcomemac/Downloads/ratings.csv')
+    ratings_df = pd.read_csv('ratings.csv')
     
     # Precompute TF-IDF and similarity
     tfidf = TfidfVectorizer(stop_words='english')
