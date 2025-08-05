@@ -814,14 +814,6 @@ if st.session_state.cached_data is None:
 else:
     movies_df, ratings_df, precomputed = st.session_state.cached_data
     
-# Use the loader
-"""if st.session_state.cached_data is None:
-    with st.spinner("Loading movie data. This may take a few minutes..."):
-        movies_df, ratings_df, precomputed = load_data()
-        st.session_state.cached_data = (movies_df, ratings_df, precomputed)
-else:
-    movies_df, ratings_df, precomputed = st.session_state.cached_data"""
-
 
 # ----------------- MOVIE POSTER DISPLAY -----------------
 def display_poster(poster_path, class_name="poster-container", width=200):
