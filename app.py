@@ -665,22 +665,6 @@ def fetch_popular_web_series(api_key="623d4838545cb2f9581d85baa9c89ed8", num_ser
         return []
 
 
-# Use the loader
-if st.session_state.cached_data is None:
-    with st.spinner("Loading movie data. This may take a few minutes..."):
-        movies_df, ratings_df, precomputed = load_data()
-        
-        # ✅ Debug: Check if 'overview' column exists
-        if 'overview' not in movies_df.columns:
-            st.error("❌ 'overview' column is missing in movies_df. Available columns:")
-            st.write(movies_df.columns.tolist())
-            st.stop()
-
-        st.session_state.cached_data = (movies_df, ratings_df, precomputed)
-else:
-    movies_df, ratings_df, precomputed = st.session_state.cached_data
-
-
 @st.cache_data
 def load_data():
     # Show loading progress
@@ -815,14 +799,28 @@ def load_data():
         'genre_set': sorted(genre_set)
     }
 
-
 # Use the loader
-#if st.session_state.cached_data is None:
-    #with st.spinner("Loading movie data. This may take a few minutes..."):
-        #movies_df, ratings_df, precomputed = load_data()
-        #st.session_state.cached_data = (movies_df, ratings_df, precomputed)
-#else:
-    #movies_df, ratings_df, precomputed = st.session_state.cached_data
+if st.session_state.cached_data is None:
+    with st.spinner("Loading movie data. This may take a few minutes..."):
+        movies_df, ratings_df, precomputed = load_data()
+        
+        # ✅ Debug: Check if 'overview' column exists
+        if 'overview' not in movies_df.columns:
+            st.error("❌ 'overview' column is missing in movies_df. Available columns:")
+            st.write(movies_df.columns.tolist())
+            st.stop()
+
+        st.session_state.cached_data = (movies_df, ratings_df, precomputed)
+else:
+    movies_df, ratings_df, precomputed = st.session_state.cached_data
+    
+# Use the loader
+"""if st.session_state.cached_data is None:
+    with st.spinner("Loading movie data. This may take a few minutes..."):
+        movies_df, ratings_df, precomputed = load_data()
+        st.session_state.cached_data = (movies_df, ratings_df, precomputed)
+else:
+    movies_df, ratings_df, precomputed = st.session_state.cached_data"""
 
 
 # ----------------- MOVIE POSTER DISPLAY -----------------
