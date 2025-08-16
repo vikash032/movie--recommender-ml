@@ -4,6 +4,13 @@ os.environ["STREAMLIT_DISABLE_WATCHDOG_WARNINGS"] = "1"
 os.environ["STREAMLIT_WATCH_FILES"] = "false"
 os.environ["PYTHONWARNINGS"] = "ignore"
 
+# ✅ Torch patch
+import torch
+try:
+    torch.classes.__path__ = []
+except Exception:
+    pass
+
 # =========================================
 # MODULE 1: CONFIGURATION & INITIALIZATION
 # =========================================
@@ -18,6 +25,7 @@ import requests
 import faiss
 import time
 import uuid
+import re
 from datetime import datetime
 from wordcloud import WordCloud
 from collections import defaultdict, Counter
@@ -953,12 +961,14 @@ def render_login_signup():
                 st.session_state.username = login_username
                 save_login_activity(login_username)
                 initialize_user_profile(login_username)
+                st.rerun()
             elif validate_user(login_username, login_password):
                 st.success(f"✅ Welcome {login_username}")
                 st.session_state.logged_in = True
                 st.session_state.username = login_username
                 save_login_activity(login_username)
                 initialize_user_profile(login_username)
+                st.rerun()
             else:
                 st.error("❌ Invalid Credentials")
     
@@ -977,403 +987,370 @@ def render_login_signup():
                 st.session_state.username = reg_username
                 save_login_activity(reg_username)
                 initialize_user_profile(reg_username)
+                st.rerun()
             else:
                 st.warning("⚠️ Username already exists. Try logging in.")
 
 # =========================================
 # MODULE 8: MAIN APPLICATION LOGIC
 # =========================================
-def main():
-    """Main application logic"""
-    # Load API key from secrets
-    try:
-        api_key = st.secrets["TMDB_API_KEY"]
-    except (KeyError, FileNotFoundError):
-        st.error("TMDB API key not found. Please check your secrets configuration.")
-        return
+def render_home_tab(movies_df):
+    """Render the home tab content"""
+    # Project description
+    with st.expander("🌟 About Movie Recommender Pro", expanded=True):
+        st.markdown("""
+        <div style="padding: 20px; border-radius: 15px; background: linear-gradient(135deg, rgba(255, 107, 107, 0.2), rgba(78, 205, 196, 0.2));">
+            <h3 style="color: #ffbe0b; text-align: center;">Discover Your Next Favorite Movie!</h3>
+            <p style="font-size: 1.1rem;">Movie Recommender Pro uses advanced AI algorithms to find perfect movie matches based on your unique preferences. 
+            Our hybrid recommendation system combines multiple techniques to deliver personalized suggestions.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Feature showcase
+        st.subheader("✨ Key Features")
+        
+        # Feature cards in columns
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("""
+            <div class="feature-card section-animation">
+                <h4>🔍 Smart Search</h4>
+                <p>Find movies by title, genre, or keywords</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("""
+            <div class="feature-card section-animation">
+                <h4>🤖 AI Recommendations</h4>
+                <p>Deep learning models personalize suggestions</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with col2:
+            st.markdown("""
+            <div class="feature-card section-animation">
+                <h4>💡 Hybrid System</h4>
+                <p>Combines content-based and collaborative filtering</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("""
+            <div class="feature-card section-animation">
+                <h4>📈 Visual Analytics</h4>
+                <p>Explore movie trends and genre distributions</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with col3:
+            st.markdown("""
+            <div class="feature-card section-animation">
+                <h4>👤 Personal Profile</h4>
+                <p>Track your liked/disliked movies</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("""
+            <div class="feature-card section-animation">
+                <h4>🌱 Sustainability Focus</h4>
+                <p>Track your environmental impact</p>
+            </div>
+            """, unsafe_allow_html=True)
     
-    # High contrast mode toggle
-    if st.session_state.high_contrast:
-        st.markdown('<style>:root {--primary: #ff0000; --secondary: #00ffff; --accent: #ffff00; --background: #000000; --card: #111111; --text: #ffffff;}</style>', unsafe_allow_html=True)
+    # Real-time data section
+    st.subheader("🔥 Real-Time Trending")
+    realtime_data = fetch_realtime_data(st.secrets["TMDB_API_KEY"])
     
-    if not st.session_state.logged_in:
-        render_login_signup()
+    if realtime_data['trending']:
+        st.markdown("### 🚀 Trending Today")
+        cols = st.columns(5)
+        for idx, movie in enumerate(realtime_data['trending'][:5]):
+            with cols[idx % 5]:
+                display_poster(movie.get('poster_path'), class_name="poster-container", width=150)
+                st.caption(f"**{movie['title']}**")
+                st.caption(f"⭐ {movie.get('vote_average', 'N/A')}")
+    
+    if realtime_data['new_releases']:
+        st.markdown("### 🆕 New Releases")
+        cols = st.columns(5)
+        for idx, movie in enumerate(realtime_data['new_releases'][:5]):
+            with cols[idx % 5]:
+                display_poster(movie.get('poster_path'), class_name="poster-container", width=150)
+                st.caption(f"**{movie['title']}**")
+                st.caption(f"📅 {movie.get('release_date', 'N/A')}")
+    
+    # Bollywood section
+    st.markdown("### 🎬 Bollywood Spotlight")
+    bollywood_movies = movies_df[movies_df['is_bollywood'] == True].sort_values('weighted_score', ascending=False).head(10)
+    
+    if not bollywood_movies.empty:
+        cols = st.columns(5)
+        for idx, (_, row) in enumerate(bollywood_movies.head(5).iterrows()):
+            with cols[idx % 5]:
+                display_poster(row.get('poster_path'), class_name="poster-container", width=150)
+                st.caption(f"**{row['title']}**")
+                st.progress(row['weighted_score'] / 10, text=f"⭐ {row['vote_average']}")
     else:
-        # Load data if not already cached
-        if st.session_state.cached_data is None:
-            with st.spinner("Loading movie data. This may take a few minutes..."):
-                try:
-                    movies_df, ratings_df, precomputed = load_data(api_key)
-                    st.session_state.cached_data = (movies_df, ratings_df, precomputed)
-                except Exception as e:
-                    st.error(f"Failed to load data: {str(e)}")
-                    return
-        else:
-            movies_df, ratings_df, precomputed = st.session_state.cached_data
-        
-        st.markdown(f'<h1 class="neon-title">🎬 Movie Recommender Pro</h1>', unsafe_allow_html=True)
-        st.markdown(f'<div style="text-align: center; margin-bottom: 30px;">Welcome back, <strong>{st.session_state.username}</strong>!</div>', unsafe_allow_html=True)
-        
-        # Define tabs
-        tabs = st.tabs([
-            "🏠 Home",
-            "🔍 Search",
-            "📊 Popular",
-            "🎯 Genre Filter",
-            "🎬 Latest Releases",
-            "📈 Analytics",
-            "🎭 Actor/Director",
-            "💡 Hybrid",
-            "🤖 Deep Learning",
-            "👤 Profile"
-        ])
-        
-        # Tab 0 - Home
-        with tabs[0]:
-            # Project description
-            with st.expander("🌟 About Movie Recommender Pro", expanded=True):
-                st.markdown("""
-                <div style="padding: 20px; border-radius: 15px; background: linear-gradient(135deg, rgba(255, 107, 107, 0.2), rgba(78, 205, 196, 0.2));">
-                    <h3 style="color: #ffbe0b; text-align: center;">Discover Your Next Favorite Movie!</h3>
-                    <p style="font-size: 1.1rem;">Movie Recommender Pro uses advanced AI algorithms to find perfect movie matches based on your unique preferences. 
-                    Our hybrid recommendation system combines multiple techniques to deliver personalized suggestions.</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Feature showcase
-                st.subheader("✨ Key Features")
-                
-                # Feature cards in columns
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.markdown("""
-                    <div class="feature-card section-animation">
-                        <h4>🔍 Smart Search</h4>
-                        <p>Find movies by title, genre, or keywords</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    st.markdown("""
-                    <div class="feature-card section-animation">
-                        <h4>🤖 AI Recommendations</h4>
-                        <p>Deep learning models personalize suggestions</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                with col2:
-                    st.markdown("""
-                    <div class="feature-card section-animation">
-                        <h4>💡 Hybrid System</h4>
-                        <p>Combines content-based and collaborative filtering</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    st.markdown("""
-                    <div class="feature-card section-animation">
-                        <h4>📈 Visual Analytics</h4>
-                        <p>Explore movie trends and genre distributions</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                with col3:
-                    st.markdown("""
-                    <div class="feature-card section-animation">
-                        <h4>👤 Personal Profile</h4>
-                        <p>Track your liked/disliked movies</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    st.markdown("""
-                    <div class="feature-card section-animation">
-                        <h4>🌱 Sustainability Focus</h4>
-                        <p>Track your environmental impact</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-            
-            # Real-time data section
-            st.subheader("🔥 Real-Time Trending")
-            realtime_data = fetch_realtime_data()
-            
-            if realtime_data['trending']:
-                st.markdown("### 🚀 Trending Today")
-                cols = st.columns(5)
-                for idx, movie in enumerate(realtime_data['trending'][:5]):
-                    with cols[idx % 5]:
-                        display_poster(movie.get('poster_path'), class_name="poster-container", width=150)
-                        st.caption(f"**{movie['title']}**")
-                        st.caption(f"⭐ {movie.get('vote_average', 'N/A')}")
-            
-            if realtime_data['new_releases']:
-                st.markdown("### 🆕 New Releases")
-                cols = st.columns(5)
-                for idx, movie in enumerate(realtime_data['new_releases'][:5]):
-                    with cols[idx % 5]:
-                        display_poster(movie.get('poster_path'), class_name="poster-container", width=150)
-                        st.caption(f"**{movie['title']}**")
-                        st.caption(f"📅 {movie.get('release_date', 'N/A')}")
-            
-            # Bollywood section
-            st.markdown("### 🎬 Bollywood Spotlight")
-            bollywood_movies = movies_df[movies_df['is_bollywood'] == True].sort_values('weighted_score', ascending=False).head(10)
-            
-            if not bollywood_movies.empty:
-                cols = st.columns(5)
-                for idx, (_, row) in enumerate(bollywood_movies.head(5).iterrows()):
-                    with cols[idx % 5]:
-                        display_poster(row.get('poster_path'), class_name="poster-container", width=150)
-                        st.caption(f"**{row['title']}**")
-                        st.progress(row['weighted_score'] / 10, text=f"⭐ {row['vote_average']}")
+        st.info("No Bollywood movies available")
+    
+    # Featured Recommendations
+    st.markdown("### ✨ Featured Recommendations")
+    featured = movies_df.sample(3)
+    for _, row in featured.iterrows():
+        movie_card(row, context="home")
+    
+    # Admin Panel
+    if st.session_state.username == "Vic":
+        with st.expander("🛡️ Admin Panel - User Login Activity", expanded=False):
+            st.markdown("### 👨‍💼 User Login Logs")
+            if os.path.exists(LOGIN_ACTIVITY_FILE):
+                logs = pd.read_csv(LOGIN_ACTIVITY_FILE)
+                st.dataframe(logs.sort_values("Timestamp", ascending=False).head(10))
             else:
-                st.info("No Bollywood movies available")
-            
-            # Featured Recommendations
-            st.markdown("### ✨ Featured Recommendations")
-            featured = movies_df.sample(3)
-            for _, row in featured.iterrows():
-                movie_card(row, context="home")
-            
-            # Admin Panel
-            if st.session_state.username == "Vic":
-                with st.expander("🛡️ Admin Panel - User Login Activity", expanded=False):
-                    st.markdown("### 👨‍💼 User Login Logs")
-                    if os.path.exists(LOGIN_ACTIVITY_FILE):
-                        logs = pd.read_csv(LOGIN_ACTIVITY_FILE)
-                        st.dataframe(logs.sort_values("Timestamp", ascending=False).head(10))
-                    else:
-                        st.info("No login activity recorded yet.")
-                    if st.button("🔄 Refresh Logs"):
-                        st.rerun()
+                st.info("No login activity recorded yet.")
+            if st.button("🔄 Refresh Logs"):
+                st.rerun()
 
-        # Tab 1 - Search
-        with tabs[1]:
-            st.subheader("🔍 Search Movies")
-            search_term = st.text_input("Search by title, genre, or keyword")
+def render_search_tab(movies_df):
+    """Render the search tab content"""
+    st.subheader("🔍 Search Movies")
+    search_term = st.text_input("Search by title, genre, or keyword")
+    
+    if search_term:
+        try:
+            # Search by title
+            title_results = movies_df[movies_df['title'].str.contains(search_term, case=False)]
             
-            if search_term:
-                # Search by title
-                title_results = movies_df[movies_df['title'].str.contains(search_term, case=False)]
-                
-                # Search by genre
-                genre_results = movies_df[movies_df['genres'].str.contains(search_term, case=False)]
-                
-                # Search by keyword in overview
-                keyword_results = movies_df[movies_df['overview'].str.contains(search_term, case=False)]
-                
-                # Combine results
-                results = pd.concat([title_results, genre_results, keyword_results]).drop_duplicates(subset=["id"])
-
-                
-                if not results.empty:
-                    st.write(f"🔍 Found {len(results)} matches")
-                    for _, row in results.head(10).iterrows():
-                        movie_card(row, show_feedback=True, context="search")
-                else:
-                    st.warning("No movies found matching your search")
-
-        # Tab 2 - Popular
-        with tabs[2]:
-            st.subheader("📂 Browse Movie Database")
+            # Search by genre
+            genre_results = movies_df[movies_df['genres'].str.contains(search_term, case=False)]
             
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                sort_options = [
-                    "Title", "Rating", "Popularity", "Release Date (Newest)", 
-                    "Release Date (Oldest)", "Budget (High to Low)", "Budget (Low to High)"
-                ]
-                sort_by = st.selectbox("Sort by", sort_options, key="popular_sort")
-            with col2:
-                num_movies = st.slider("Number per page", 10, 100, 20, key="num_movies_slider")
+            # Search by keyword in overview
+            keyword_results = movies_df[movies_df['overview'].str.contains(search_term, case=False)]
+            
+            # Combine results
+            results = pd.concat([title_results, genre_results, keyword_results]).drop_duplicates(subset=["id"])
+
+            
+            if not results.empty:
+                st.write(f"🔍 Found {len(results)} matches")
+                for _, row in results.head(10).iterrows():
+                    movie_card(row, show_feedback=True, context="search")
+            else:
+                st.warning("No movies found matching your search")
+        except Exception as e:
+            st.error(f"Error during search: {str(e)}")
+
+def render_popular_tab(movies_df):
+    """Render the popular movies tab"""
+    st.subheader("📂 Browse Movie Database")
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        sort_options = [
+            "Title", "Rating", "Popularity", "Release Date (Newest)", 
+            "Release Date (Oldest)", "Budget (High to Low)", "Budget (Low to High)"
+        ]
+        sort_by = st.selectbox("Sort by", sort_options, key="popular_sort")
+    with col2:
+        num_movies = st.slider("Number per page", 10, 100, 20, key="num_movies_slider")
+    
+    # Pagination
+    page_number = st.number_input("Page", min_value=1, value=1, step=1)
+    start_idx = (page_number - 1) * num_movies
+    end_idx = start_idx + num_movies
+    
+    sorted_df = movies_df.copy()
+    if sort_by == "Rating":
+        sorted_df = sorted_df.sort_values("vote_average", ascending=False)
+    elif sort_by == "Popularity":
+        sorted_df = sorted_df.sort_values("popularity", ascending=False)
+    elif sort_by == "Release Date (Newest)":
+        sorted_df = sorted_df.sort_values("release_date", ascending=False)
+    elif sort_by == "Release Date (Oldest)":
+        sorted_df = sorted_df.sort_values("release_date", ascending=True)
+    elif sort_by == "Budget (High to Low)":
+        sorted_df = sorted_df.sort_values("budget", ascending=False)
+    elif sort_by == "Budget (Low to High)":
+        sorted_df = sorted_df.sort_values("budget", ascending=True)
+    else:
+        sorted_df = sorted_df.sort_values("title")
+    
+    # Display the slice
+    st.write(f"📖 Showing {start_idx+1} - {min(end_idx, len(sorted_df))} of {len(sorted_df)} movies")
+    for _, row in sorted_df.iloc[start_idx:end_idx].iterrows():
+        movie_card(row, context="browse")
+
+def render_genre_tab(movies_df, precomputed):
+    """Render the genre filter tab"""
+    st.subheader("🎯 Discover by Genre")
+    # Get available genres
+    available_genres = precomputed['genre_set']
+    valid_defaults = ["Action", "Comedy"]
+    
+    selected_genres = st.multiselect(
+        "Select genres", 
+        available_genres, 
+        default=valid_defaults, 
+        key="genre_filter"
+    )
+    
+    if selected_genres:
+        try:
+            # Use exact match filtering
+            filtered = movies_df[movies_df['genres'].apply(
+                lambda g: any(genre in g.split(', ') for genre in selected_genres)
+            )]
+            
+            # Validation for empty results
+            if len(filtered) == 0:
+                st.warning("No movies found with the selected genres")
+                return
+                
+            st.write(f"🎬 Found {len(filtered)} movies")
             
             # Pagination
-            page_number = st.number_input("Page", min_value=1, value=1, step=1)
-            start_idx = (page_number - 1) * num_movies
-            end_idx = start_idx + num_movies
+            num_per_page = st.slider("Movies per page", 5, 50, 10, key="genre_per_page")
+            page = st.number_input("Page", min_value=1, max_value=len(filtered)//num_per_page+1, value=1)
+            start = (page-1) * num_per_page
+            end = start + num_per_page
             
-            sorted_df = movies_df.copy()
-            if sort_by == "Rating":
-                sorted_df = sorted_df.sort_values("vote_average", ascending=False)
-            elif sort_by == "Popularity":
-                sorted_df = sorted_df.sort_values("popularity", ascending=False)
-            elif sort_by == "Release Date (Newest)":
-                sorted_df = sorted_df.sort_values("release_date", ascending=False)
-            elif sort_by == "Release Date (Oldest)":
-                sorted_df = sorted_df.sort_values("release_date", ascending=True)
-            elif sort_by == "Budget (High to Low)":
-                sorted_df = sorted_df.sort_values("budget", ascending=False)
-            elif sort_by == "Budget (Low to High)":
-                sorted_df = sorted_df.sort_values("budget", ascending=True)
-            else:
-                sorted_df = sorted_df.sort_values("title")
-            
-            # Display the slice
-            st.write(f"📖 Showing {start_idx+1} - {min(end_idx, len(sorted_df))} of {len(sorted_df)} movies")
-            for _, row in sorted_df.iloc[start_idx:end_idx].iterrows():
-                movie_card(row, context="browse")
+            # Display results
+            for _, row in filtered.iloc[start:end].iterrows():
+                movie_card(row, context="genre")
+        except Exception as e:
+            st.error(f"Error filtering by genre: {str(e)}")
+    else:
+        st.warning("Please select at least one genre")
 
+def render_latest_tab(movies_df):
+    """Render the latest releases tab"""
+    st.subheader("🎬 Latest Movie Releases")
+    
+    # Year selector
+    selected_year = st.selectbox("Select Year", list(range(2018, 2026)), index=2024-2018)
+    
+    # Get movies for selected year
+    current_year_movies = movies_df[
+        (movies_df['release_date'].str.startswith(str(selected_year))) | 
+        (movies_df['release_date'].str.contains(f"^{selected_year}-", na=False))
+    ]
+    
+    # Count movies by industry
+    hollywood_count = len(current_year_movies[current_year_movies['is_bollywood'] == False])
+    bollywood_count = len(current_year_movies[current_year_movies['is_bollywood'] == True])
+    
+    st.markdown(f"### 🎉 Movies of {selected_year}")
+    st.write(f"🎥 **Hollywood:** {hollywood_count} movies | 🎬 **Bollywood:** {bollywood_count} movies")
+    
+    if not current_year_movies.empty:
+        # Genre filter
+        selected_genres = st.multiselect("Filter by genres", precomputed['genre_set'], key="latest_genre_filter")
         
-        # Tab 3 - Genre Filter
-        with tabs[3]:
-            st.subheader("🎯 Discover by Genre")
-            # Get available genres
-            available_genres = precomputed['genre_set']
-            valid_defaults = ["Action", "Comedy"]
+        if selected_genres:
+            def genre_filter(genres_str):
+                if not isinstance(genres_str, str):
+                    return False
+                genres_list = [g.strip() for g in genres_str.split(',')]
+                return any(genre in genres_list for genre in selected_genres)
             
-            selected_genres = st.multiselect(
-                "Select genres", 
-                available_genres, 
-                default=valid_defaults, 
-                key="genre_filter"
-            )
-            
-            if selected_genres:
-                # Use exact match filtering
-                filtered = movies_df[movies_df['genres'].apply(
-                    lambda g: any(genre in g.split(', ') for genre in selected_genres)
-                )]
-                
-                # Validation for empty results
-                if len(filtered) == 0:
-                    st.warning("No movies found with the selected genres")
-                    st.stop()
-                    
-                st.write(f"🎬 Found {len(filtered)} movies")
-                
-                # Pagination
-                num_per_page = st.slider("Movies per page", 5, 50, 10, key="genre_per_page")
-                page = st.number_input("Page", min_value=1, max_value=len(filtered)//num_per_page+1, value=1)
-                start = (page-1) * num_per_page
-                end = start + num_per_page
-                
-                for _, row in filtered.iloc[start:end].iterrows():
-                    movie_card(row, context="genre")
-            else:
-                st.warning("Please select at least one genre")
+            current_year_movies = current_year_movies[current_year_movies['genres'].apply(genre_filter)]
         
-        # Tab 4 - Latest Releases (Real-time Data Integration)
-        with tabs[4]:
-            st.subheader("🎬 Latest Movie Releases")
-            
-            # Year selector
-            selected_year = st.selectbox("Select Year", list(range(2018, 2026)), index=2024-2018)
-            
-            # Get movies for selected year
-            current_year_movies = movies_df[
-                (movies_df['release_date'].str.startswith(str(selected_year))) | 
-                (movies_df['release_date'].str.contains(f"^{selected_year}-", na=False))
-            ]
-            
-            # Count movies by industry
-            hollywood_count = len(current_year_movies[current_year_movies['is_bollywood'] == False])
-            bollywood_count = len(current_year_movies[current_year_movies['is_bollywood'] == True])
-            
-            st.markdown(f"### 🎉 Movies of {selected_year}")
-            st.write(f"🎥 **Hollywood:** {hollywood_count} movies | 🎬 **Bollywood:** {bollywood_count} movies")
-            
-            if not current_year_movies.empty:
-                # Genre filter
-                selected_genres = st.multiselect("Filter by genres", precomputed['genre_set'], key="latest_genre_filter")
-                
-                if selected_genres:
-                    def genre_filter(genres_str):
-                        if not isinstance(genres_str, str):
-                            return False
-                        genres_list = [g.strip() for g in genres_str.split(',')]
-                        return any(genre in genres_list for genre in selected_genres)
-                    
-                    current_year_movies = current_year_movies[current_year_movies['genres'].apply(genre_filter)]
-                
-                st.write(f"📊 **Filtered:** {len(current_year_movies)} movies")
-                
-                # Sort by release date (newest first)
-                current_year_movies = current_year_movies.sort_values("release_date", ascending=False)
-                
-                # Pagination
-                num_per_page = st.slider("Movies per page", 10, 100, 20, key="latest_per_page")
-                page = st.number_input("Page", min_value=1, max_value=len(current_year_movies)//num_per_page+1, value=1)
-                start = (page-1) * num_per_page
-                end = start + num_per_page
-                
-                # Show movie cards
-                for _, row in current_year_movies.iloc[start:end].iterrows():
-                    movie_card(row, context="latest", show_feedback=True)
-            else:
-                st.warning(f"No movies found for {selected_year} with selected genres.")
+        st.write(f"📊 **Filtered:** {len(current_year_movies)} movies")
         
-        # Tab 5 - Analytics      
-        with tabs[5]:
-            st.subheader("📊 Movie Analytics Dashboard")
-            
-            tab1, tab2, tab3 = st.tabs(["Genre Analysis", "Rating Insights", "Word Cloud"])
-            
-            with tab1:
-                st.subheader("🎭 Genre Distribution")
-                genre_count = defaultdict(int)
-                for g_list in movies_df['genres']:
-                    if isinstance(g_list, str):
-                        for genre in g_list.split(', '):
-                            clean_genre = genre.strip()
-                            if clean_genre:
-                                genre_count[clean_genre] += 1
-                
-                # Create DataFrame from genre_count
-                genre_df = pd.DataFrame(list(genre_count.items()), columns=['Genre', 'Count'])
-                genre_df = genre_df.sort_values('Count', ascending=False)
-                
-                fig, ax = plt.subplots(figsize=(10, 6))
-                sns.barplot(x='Count', y='Genre', data=genre_df.head(15), palette="viridis", ax=ax)
-                ax.set_title("Top 15 Movie Genres")
-                st.pyplot(fig)
+        # Sort by release date (newest first)
+        current_year_movies = current_year_movies.sort_values("release_date", ascending=False)
+        
+        # Pagination
+        num_per_page = st.slider("Movies per page", 10, 100, 20, key="latest_per_page")
+        page = st.number_input("Page", min_value=1, max_value=len(current_year_movies)//num_per_page+1, value=1)
+        start = (page-1) * num_per_page
+        end = start + num_per_page
+        
+        # Show movie cards
+        for _, row in current_year_movies.iloc[start:end].iterrows():
+            movie_card(row, context="latest", show_feedback=True)
+    else:
+        st.warning(f"No movies found for {selected_year} with selected genres.")
 
-            
-            with tab2:
-                st.subheader("⭐ Rating Insights")
-                fig, ax = plt.subplots(1, 2, figsize=(14, 5))
-                
-                # Rating histogram
-                sns.histplot(movies_df['vote_average'].dropna(), bins=20, kde=True, ax=ax[0], color='skyblue')
-                ax[0].set_title("Vote Average Distribution")
-                ax[0].set_xlabel("Rating")
-                ax[0].set_ylabel("Frequency")
-                
-                # Rating vs. Budget
-                budget_movies = movies_df[movies_df['budget'] > 0]
-                sample_size = min(500, len(budget_movies))
-                budget_sample = budget_movies.sample(sample_size)
-                sns.scatterplot(x='vote_average', y='budget', data=budget_sample, ax=ax[1], alpha=0.6)
-                ax[1].set_title("Rating vs. Budget")
-                ax[1].set_xlabel("Rating")
-                ax[1].set_ylabel("Budget (Millions)")
-                ax[1].set_yscale('log')
-                
-                st.pyplot(fig)
-            
-            with tab3:
-                st.subheader("☁️ Overview Word Cloud")
-                text = " ".join(movies_df['overview'].dropna().astype(str))
-                
-                if text:
-                    wordcloud = WordCloud(width=800, height=400, background_color='black').generate(text)
-                    fig, ax = plt.subplots(figsize=(12, 8))
-                    ax.imshow(wordcloud, interpolation='bilinear')
-                    ax.axis('off')
-                    st.pyplot(fig)
-                else:
-                    st.warning("No overview text available")
+def render_analytics_tab(movies_df):
+    """Render the analytics tab"""
+    st.subheader("📊 Movie Analytics Dashboard")
+    
+    tab1, tab2, tab3 = st.tabs(["Genre Analysis", "Rating Insights", "Word Cloud"])
+    
+    with tab1:
+        st.subheader("🎭 Genre Distribution")
+        genre_count = defaultdict(int)
+        for g_list in movies_df['genres']:
+            if isinstance(g_list, str):
+                for genre in g_list.split(', '):
+                    clean_genre = genre.strip()
+                    if clean_genre:
+                        genre_count[clean_genre] += 1
         
-        # Tab 6 - Actor/Director Recommendations
-        with tabs[6]:
-            st.subheader("🎭 Find Movies by Actor or Director")
-            
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                search_name = st.text_input("Enter actor or director name", key="actor_director_search")
-            with col2:
-                num_results = st.slider("Number of results", 5, 50, 10, key="actor_num_slider")
-            
-            if search_name:
-                with st.spinner(f"Searching for movies with {search_name}..."):
-                    results = get_movies_by_actor_director(search_name)
+        # Create DataFrame from genre_count
+        genre_df = pd.DataFrame(list(genre_count.items()), columns=['Genre', 'Count'])
+        genre_df = genre_df.sort_values('Count', ascending=False)
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        sns.barplot(x='Count', y='Genre', data=genre_df.head(15), palette="viridis", ax=ax)
+        ax.set_title("Top 15 Movie Genres")
+        st.pyplot(fig)
+
+    
+    with tab2:
+        st.subheader("⭐ Rating Insights")
+        fig, ax = plt.subplots(1, 2, figsize=(14, 5))
+        
+        # Rating histogram
+        sns.histplot(movies_df['vote_average'].dropna(), bins=20, kde=True, ax=ax[0], color='skyblue')
+        ax[0].set_title("Vote Average Distribution")
+        ax[0].set_xlabel("Rating")
+        ax[0].set_ylabel("Frequency")
+        
+        # Rating vs. Budget
+        budget_movies = movies_df[movies_df['budget'] > 0]
+        sample_size = min(500, len(budget_movies))
+        budget_sample = budget_movies.sample(sample_size)
+        sns.scatterplot(x='vote_average', y='budget', data=budget_sample, ax=ax[1], alpha=0.6)
+        ax[1].set_title("Rating vs. Budget")
+        ax[1].set_xlabel("Rating")
+        ax[1].set_ylabel("Budget (Millions)")
+        ax[1].set_yscale('log')
+        
+        st.pyplot(fig)
+    
+    with tab3:
+        st.subheader("☁️ Overview Word Cloud")
+        text = " ".join(movies_df['overview'].dropna().astype(str))
+        
+        if text:
+            wordcloud = WordCloud(width=800, height=400, background_color='black').generate(text)
+            fig, ax = plt.subplots(figsize=(12, 8))
+            ax.imshow(wordcloud, interpolation='bilinear')
+            ax.axis('off')
+            st.pyplot(fig)
+        else:
+            st.warning("No overview text available")
+
+def render_actor_director_tab(movies_df):
+    """Render the actor/director tab"""
+    st.subheader("🎭 Find Movies by Actor or Director")
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        search_name = st.text_input("Enter actor or director name", key="actor_director_search")
+    with col2:
+        num_results = st.slider("Number of results", 5, 50, 10, key="actor_num_slider")
+    
+    if search_name:
+        with st.spinner(f"Searching for movies with {search_name}..."):
+            try:
+                # Search for actor in cast or director
+                results = movies_df[
+                    (movies_df['director'].str.contains(search_name, case=False)) |
+                    (movies_df['actors'].apply(lambda x: any(search_name.lower() in actor.lower() for actor in x) if isinstance(x, list) else False))
+                ]
                 
                 if not results.empty:
                     st.success(f"🎬 Found {len(results)} movies featuring {search_name}")
@@ -1392,224 +1369,324 @@ def main():
                         movie_card(row, context="actor", show_feedback=True)
                 else:
                     st.warning(f"No movies found with {search_name}")
-        
-        
-        # Tab 7 - Hybrid Recommendations
-        with tabs[7]:
-            st.subheader("💡 Hybrid Recommendations")
-            st.info("Combines content-based filtering with collaborative filtering for personalized results")
-            
-            # Movie type selection
-            available_genres = precomputed['genre_set']
-            valid_defaults = ["Action", "Comedy"]
-            
-            selected_types = st.multiselect(
-                "Filter by movie types", 
-                available_genres, 
-                default=valid_defaults, 
-                key="hybrid_type_filter"
-            )
-            
-            # Optional movie search
-            movie_search = st.text_input("🎬 Enter a movie name (optional)", key="hybrid_movie_search", placeholder="Type a movie name...")
-            
-            # Actor/Director filter
-            actor_director = st.text_input("👤 Filter by actor or director (optional)", key="hybrid_actor_director")
-            
-            # Mood filter
-            mood_options = ["Happy 😊", "Exciting 🚀", "Romantic 💕", "Thrilling 😱", "Thoughtful 🤔", "Calm 😌"]
-            mood = st.selectbox("😊 Filter by mood (optional)", ["None"] + mood_options, key="hybrid_mood")
-            mood_mapping = {
-                "Happy 😊": "happy",
-                "Exciting 🚀": "exciting",
-                "Romantic 💕": "romantic",
-                "Thrilling 😱": "thrilling",
-                "Thoughtful 🤔": "thoughtful",
-                "Calm 😌": "calm"
-            }
-            mood_value = mood_mapping.get(mood, None)
-            
-            # Sorting options
-            col1, col2 = st.columns(2)
-            with col1:
-                sort_by = st.radio("Prioritize", ["Latest", "Oldest"], horizontal=True, key="hybrid_sort")
-            with col2:
-                top_n = st.slider("🔢 Number of recommendations", 5, 20, 10, key="hybrid_num_slider")
+            except Exception as e:
+                st.error(f"Error searching for actor/director: {str(e)}")
 
-            if st.button("Generate Recommendations", key="hybrid_btn", use_container_width=True):
-                with st.spinner("Analyzing patterns..."):
-                    time.sleep(0.5)
-                    
-                    # Improved user ID generation
-                    user_id = abs(hash(st.session_state.username)) % 10000
-                    
-                    # Determine what to recommend
-                    recommendation_basis = ""
-                    if movie_search:
-                        # User entered a movie
-                        movie_title = find_movie_by_title(movie_search, movies_df)
-                        if not movie_title:
-                            st.error("Movie not found. Please try another title.")
-                        else:
-                            results = advanced_hybrid_recommendation(
-                                movie_title,
-                                user_id,
-                                top_n,
-                                selected_types,
-                                "latest" if sort_by == "Latest" else "oldest",
-                                actor_director,
-                                mood_value
-                            )
-                            
-                            recommendation_basis = f"Because you liked **{movie_title}**"
-                    else:
-                        # No movie entered - use user preferences or popular movies
-                        results = advanced_hybrid_recommendation(
-                            None,
-                            user_id,
-                            top_n,
-                            selected_types,
-                            "latest" if sort_by == "Latest" else "oldest",
-                            actor_director,
-                            mood_value
-                        )
-                            
-                        if st.session_state.user_preferences.get('liked_movies', []):
-                            # Get top 3 preferred genres
-                            top_genres = get_user_preferred_genres()
-                            if top_genres:
-                                genres_str = ", ".join(top_genres)
-                                recommendation_basis = f"Based on your preferences for **{genres_str}** genres"
-                            else:
-                                recommendation_basis = "Based on your movie preferences"
-                        else:
-                            recommendation_basis = "Popular movies you might enjoy"
-                    
-                    st.session_state.hybrid_recs = results
-
-                    if not results.empty:
-                        # Show recommendation context
-                        st.subheader(f"🌟 Recommendations {recommendation_basis}")
-                        
-                        # Show recommendations
-                        for _, row in results.iterrows():
-                            movie_card(row, context="hybrid")
-                    else:
-                        st.warning("⚠️ No recommendations found matching your criteria")
-
-        # Tab 8 - Deep Learning
-        with tabs[8]:
-            st.subheader("🤖 Deep Learning Recommendations")
-            st.info("Personalized recommendations based on your taste profile")
-            
-            # Show user preferences context
-            if st.session_state.user_preferences.get('liked_movies', []):
-                top_genres = get_user_preferred_genres()
-                if top_genres:
-                    st.write(f"🎯 Based on your preferences for: **{', '.join(top_genres)}**")
-            
-            # Train DL model on button click
-            if st.button("Generate Personalized Recommendations", key="dl_btn", use_container_width=True):
-                try:
-                    # Create user ID from username
-                    username = st.session_state.username
-                    user_id = abs(hash(username)) % 10000
-                    
-                    # Get all movie IDs
-                    all_movie_ids = movies_df['id'].tolist()
-                    
-                    # Predict ratings
-                    predictions = []
-                    for idx, movie_id in enumerate(all_movie_ids):
-                        pred = dl_model.predict(user_id, movie_id)
-                        predictions.append((movie_id, pred.est))
-                    
-                    # Sort predictions
-                    predictions.sort(key=lambda x: x[1], reverse=True)
-                    top_movie_ids = [mid for mid, _ in predictions[:10]]
-                    recs_df = movies_df[movies_df['id'].isin(top_movie_ids)]
-                    
-                    st.session_state.dl_recs = recs_df
-
-                    st.subheader("🌟 Personalized For You")
-                    if not recs_df.empty:
-                        # Show recommendation context
-                        liked_movies = st.session_state.user_preferences.get('liked_movies', [])
-                        if liked_movies:
-                            st.write(f"✨ Based on your likes: **{', '.join(liked_movies[:3])}**")
-                        
-                        # Show recommendations
-                        for i, row in recs_df.iterrows():
-                            unique_index = f"{i}_{uuid.uuid4().hex[:6]}"
-                            movie_card(row, context="dl", index=unique_index)
-                            if "username" in st.session_state:
-                                log_event(username, row['title'], "recommended")
-                    else:
-                        st.warning("No recommendations found. Try rating more movies.")
-
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-        # Tab 9 - Profile
-        with tabs[9]:
-            st.subheader(f"👤 {st.session_state.username}'s Profile")
-            
-            # Accessibility toggle
-            st.checkbox("Enable High Contrast Mode", 
-                        value=st.session_state.high_contrast, 
-                        key="high_contrast_toggle",
-                        on_change=lambda: setattr(st.session_state, 'high_contrast', not st.session_state.high_contrast))
-
-            # User preferences section
-            st.markdown("### 🎭 Your Preferences")
-            col1, col2 = st.columns(2)
-            
-    with col1:
-        st.markdown("### 🔐 Login to Your Account")
-        login_username = st.text_input("Username", key="login_user")
-        login_password = st.text_input("Password", type="password", key="login_pass")
-        
-        if st.button("Login", key="login_btn", use_container_width=True):
-            if login_username == "Vic" and login_password == "Vik":
-                st.success("✅ Admin Logged In")
-                st.session_state.logged_in = True
-                st.session_state.username = login_username
-                save_login_activity(login_username)
-                initialize_user_profile(login_username)
-            elif validate_user(login_username, login_password):
-                st.success(f"✅ Welcome {login_username}")
-                st.session_state.logged_in = True
-                st.session_state.username = login_username
-                save_login_activity(login_username)
-                initialize_user_profile(login_username)
-            else:
-                st.error("❌ Invalid Credentials")
+def render_hybrid_tab():
+    """Render the hybrid recommendations tab"""
+    st.subheader("💡 Hybrid Recommendations")
+    st.info("Combines content-based filtering with collaborative filtering for personalized results")
     
+    movies_df, _, precomputed = st.session_state.cached_data
+    
+    # Movie type selection
+    available_genres = precomputed['genre_set']
+    valid_defaults = ["Action", "Comedy"]
+    
+    selected_types = st.multiselect(
+        "Filter by movie types", 
+        available_genres, 
+        default=valid_defaults, 
+        key="hybrid_type_filter"
+    )
+    
+    # Optional movie search
+    movie_search = st.text_input("🎬 Enter a movie name (optional)", key="hybrid_movie_search", placeholder="Type a movie name...")
+    
+    # Actor/Director filter
+    actor_director = st.text_input("👤 Filter by actor or director (optional)", key="hybrid_actor_director")
+    
+    # Mood filter
+    mood_options = ["Happy 😊", "Exciting 🚀", "Romantic 💕", "Thrilling 😱", "Thoughtful 🤔", "Calm 😌"]
+    mood = st.selectbox("😊 Filter by mood (optional)", ["None"] + mood_options, key="hybrid_mood")
+    mood_mapping = {
+        "Happy 😊": "happy",
+        "Exciting 🚀": "exciting",
+        "Romantic 💕": "romantic",
+        "Thrilling 😱": "thrilling",
+        "Thoughtful 🤔": "thoughtful",
+        "Calm 😌": "calm"
+    }
+    mood_value = mood_mapping.get(mood, None)
+    
+    # Sorting options
+    col1, col2 = st.columns(2)
+    with col1:
+        sort_by = st.radio("Prioritize", ["Latest", "Oldest"], horizontal=True, key="hybrid_sort")
     with col2:
-        st.markdown("### 🎉 Create New Account")
-        reg_username = st.text_input("Username", key="reg_user")
-        reg_password = st.text_input("Password", type="password", key="reg_pass")
-        reg_confirm = st.text_input("Confirm Password", type="password", key="reg_confirm")
-        
-        if st.button("Register", key="reg_btn", use_container_width=True):
-            if reg_password != reg_confirm:
-                st.error("Passwords do not match")
-            elif register_user(reg_username, reg_password):
-                st.success("🎉 Signup successful. You are now logged in.")
-                st.session_state.logged_in = True
-                st.session_state.username = reg_username
-                save_login_activity(reg_username)
-                initialize_user_profile(reg_username)
-            else:
-                st.warning("⚠️ Username already exists. Try logging in.")
+        top_n = st.slider("🔢 Number of recommendations", 5, 20, 10, key="hybrid_num_slider")
+
+    if st.button("Generate Recommendations", key="hybrid_btn", use_container_width=True):
+        with st.spinner("Analyzing patterns..."):
+            time.sleep(0.5)
             
-            # Logout button
-            st.markdown("---")
-            if st.button("🔒 Logout", use_container_width=True):
-                st.session_state.logged_in = False
-                st.session_state.username = ""
-                st.success("You have been logged out. Please login again.")
-                time.sleep(2)
-                st.rerun()
+            # Improved user ID generation
+            user_id = abs(hash(st.session_state.username)) % 10000
+            
+            # Determine what to recommend
+            recommendation_basis = ""
+            if movie_search:
+                # User entered a movie
+                movie_title = find_movie_by_title(movie_search, movies_df)
+                if not movie_title:
+                    st.error("Movie not found. Please try another title.")
+                else:
+                    results = advanced_hybrid_recommendation(
+                        movie_title,
+                        user_id,
+                        top_n,
+                        selected_types,
+                        "latest" if sort_by == "Latest" else "oldest",
+                        actor_director,
+                        mood_value
+                    )
+                    
+                    recommendation_basis = f"Because you liked **{movie_title}**"
+            else:
+                # No movie entered - use user preferences or popular movies
+                results = advanced_hybrid_recommendation(
+                    None,
+                    user_id,
+                    top_n,
+                    selected_types,
+                    "latest" if sort_by == "Latest" else "oldest",
+                    actor_director,
+                    mood_value
+                )
+                    
+                if st.session_state.user_preferences.get('liked_movies', []):
+                    # Get top 3 preferred genres
+                    top_genres = get_user_preferred_genres()
+                    if top_genres:
+                        genres_str = ", ".join(top_genres)
+                        recommendation_basis = f"Based on your preferences for **{genres_str}** genres"
+                    else:
+                        recommendation_basis = "Based on your movie preferences"
+                else:
+                    recommendation_basis = "Popular movies you might enjoy"
+            
+            st.session_state.hybrid_recs = results
+
+            if not results.empty:
+                # Show recommendation context
+                st.subheader(f"🌟 Recommendations {recommendation_basis}")
+                
+                # Show recommendations
+                for _, row in results.iterrows():
+                    movie_card(row, context="hybrid")
+            else:
+                st.warning("⚠️ No recommendations found matching your criteria")
+
+def render_dl_tab():
+    """Render the deep learning recommendations tab"""
+    st.subheader("🤖 Deep Learning Recommendations")
+    st.info("Personalized recommendations based on your taste profile")
+    
+    movies_df, _, _ = st.session_state.cached_data
+    
+    # Show user preferences context
+    if st.session_state.user_preferences.get('liked_movies', []):
+        top_genres = get_user_preferred_genres()
+        if top_genres:
+            st.write(f"🎯 Based on your preferences for: **{', '.join(top_genres)}**")
+    
+    # Train DL model on button click
+    if st.button("Generate Personalized Recommendations", key="dl_btn", use_container_width=True):
+        try:
+            # Create user ID from username
+            username = st.session_state.username
+            user_id = abs(hash(username)) % 10000
+            
+            # Get all movie IDs
+            all_movie_ids = movies_df['id'].tolist()
+            
+            # Predict ratings
+            predictions = []
+            for idx, movie_id in enumerate(all_movie_ids):
+                pred = dl_model.predict(user_id, movie_id)
+                predictions.append((movie_id, pred.est))
+            
+            # Sort predictions
+            predictions.sort(key=lambda x: x[1], reverse=True)
+            top_movie_ids = [mid for mid, _ in predictions[:10]]
+            recs_df = movies_df[movies_df['id'].isin(top_movie_ids)]
+            
+            st.session_state.dl_recs = recs_df
+
+            st.subheader("🌟 Personalized For You")
+            if not recs_df.empty:
+                # Show recommendation context
+                liked_movies = st.session_state.user_preferences.get('liked_movies', [])
+                if liked_movies:
+                    st.write(f"✨ Based on your likes: **{', '.join(liked_movies[:3])}**")
+                
+                # Show recommendations
+                for i, row in recs_df.iterrows():
+                    unique_index = f"{i}_{uuid.uuid4().hex[:6]}"
+                    movie_card(row, context="dl", index=unique_index)
+                    if "username" in st.session_state:
+                        log_event(username, row['title'], "recommended")
+            else:
+                st.warning("No recommendations found. Try rating more movies.")
+
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
+
+def render_profile_tab():
+    """Render the user profile tab"""
+    st.subheader(f"👤 {st.session_state.username}'s Profile")
+    
+    # Accessibility toggle
+    st.checkbox("Enable High Contrast Mode", 
+                value=st.session_state.high_contrast, 
+                key="high_contrast_toggle",
+                on_change=lambda: setattr(st.session_state, 'high_contrast', not st.session_state.high_contrast))
+
+    # User preferences section
+    st.markdown("### 🎭 Your Preferences")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 👍 Liked Movies")
+        liked_movies = st.session_state.user_preferences.get('liked_movies', [])
+        if liked_movies:
+            for movie in liked_movies:
+                st.write(f"- {movie}")
+        else:
+            st.info("No liked movies yet")
+            
+        # Show top genres based on liked movies
+        top_genres = get_user_preferred_genres()
+        if top_genres:
+            st.markdown("#### ⭐ Preferred Genres")
+            st.write(", ".join([f"**{genre}**" for genre in top_genres]))
+            
+        # Show mood preferences
+        mood_prefs = st.session_state.user_preferences.get('mood_preferences', [])
+        if mood_prefs:
+            st.markdown("#### 😊 Preferred Moods")
+            st.write(", ".join([f"**{mood}**" for mood in mood_prefs]))
+
+    with col2:
+        st.markdown("#### 👎 Disliked Movies")
+        disliked_movies = st.session_state.user_preferences.get('disliked_movies', [])
+        if disliked_movies:
+            for movie in disliked_movies:
+                st.write(f"- {movie}")
+        else:
+            st.info("No disliked movies yet")
+            
+        st.markdown("#### 📝 Watchlist")
+        watchlist = st.session_state.user_preferences.get('watchlist', [])
+        if watchlist:
+            for movie in watchlist:
+                st.write(f"- {movie}")
+        else:
+            st.info("Your watchlist is empty")
+            
+        # Sustainability impact
+        st.markdown("#### 🌱 Environmental Impact")
+        co2_savings = st.session_state.co2_savings
+        st.metric("Estimated CO₂ Savings", f"{co2_savings:.1f} kg", 
+                  help="Calculated based on the assumption that watching at home saves 2.5 kg CO₂ per movie compared to theater visits")
+        st.caption("By streaming movies at home, you've helped reduce carbon emissions!")
+
+    # Activity log section
+    st.markdown("### 📝 Your Activity")
+    log_file = f'user_data/{st.session_state.username}_log.csv'
+    if os.path.exists(log_file):
+        logs = pd.read_csv(log_file)
+        st.dataframe(logs.sort_values("Timestamp", ascending=False).head(10))
+    else:
+        st.info("No activity recorded yet")
+
+    # Recommendation history
+    st.markdown("### 🎬 Recently Recommended")
+    if hasattr(st.session_state, 'dl_recs') and not st.session_state.dl_recs.empty:
+        cols = st.columns(3)
+        for idx, (_, row) in enumerate(st.session_state.dl_recs.head(3).iterrows()):
+            with cols[idx]:
+                display_poster(row['poster_path'], class_name="poster-container", width=150)
+                st.write(f"**{row['title']}**")
+                st.write(f"⭐ {row['vote_average']}")
+    else:
+        st.info("No recommendations generated yet")
+        
+    # Logout button
+    st.markdown("---")
+    if st.button("🔒 Logout", use_container_width=True):
+        st.session_state.logged_in = False
+        st.session_state.username = ""
+        st.success("You have been logged out. Please login again.")
+        time.sleep(2)
+        st.rerun()
+
+def main_app():
+    """Main application logic after login"""
+    st.markdown(f'<h1 class="neon-title">🎬 Movie Recommender Pro</h1>', unsafe_allow_html=True)
+    st.markdown(f'<div style="text-align: center; margin-bottom: 30px;">Welcome back, <strong>{st.session_state.username}</strong>!</div>', unsafe_allow_html=True)
+    
+    tabs = st.tabs([
+        "🏠 Home",
+        "🔍 Search",
+        "📊 Popular",
+        "🎯 Genre Filter",
+        "🎬 Latest Releases",
+        "📈 Analytics",
+        "🎭 Actor/Director",
+        "💡 Hybrid",
+        "🤖 Deep Learning",
+        "👤 Profile"
+    ])
+    
+    movies_df, _, precomputed = st.session_state.cached_data
+    
+    with tabs[0]:
+        render_home_tab(movies_df)
+    with tabs[1]:
+        render_search_tab(movies_df)
+    with tabs[2]:
+        render_popular_tab(movies_df)
+    with tabs[3]:
+        render_genre_tab(movies_df, precomputed)
+    with tabs[4]:
+        render_latest_tab(movies_df)
+    with tabs[5]:
+        render_analytics_tab(movies_df)
+    with tabs[6]:
+        render_actor_director_tab(movies_df)
+    with tabs[7]:
+        render_hybrid_tab()
+    with tabs[8]:
+        render_dl_tab()
+    with tabs[9]:
+        render_profile_tab()
+
+def main():
+    """Main application entry point"""
+    # High contrast mode toggle
+    if st.session_state.high_contrast:
+        st.markdown('<style>:root {--primary: #ff0000; --secondary: #00ffff; --accent: #ffff00; --background: #000000; --card: #111111; --text: #ffffff;}</style>', unsafe_allow_html=True)
+    
+    if not st.session_state.logged_in:
+        render_login_signup()
+    else:
+        try:
+            # Load data if not already cached
+            if st.session_state.cached_data is None:
+                with st.spinner("Loading movie data. This may take a few minutes..."):
+                    api_key = st.secrets["TMDB_API_KEY"]
+                    movies_df, ratings_df, precomputed = load_data(api_key)
+                    st.session_state.cached_data = (movies_df, ratings_df, precomputed)
+            
+            # Load deep learning model
+            global dl_model
+            dl_model = train_dl_model()
+            
+            # Render main application
+            main_app()
+        except Exception as e:
+            st.error(f"Application error: {str(e)}")
 
 # =========================================
 # STYLESHEET
@@ -1922,6 +1999,9 @@ if __name__ == "__main__":
     
     # Initialize session state
     initialize_session_state()
+    
+    # Load deep learning model
+    dl_model = None
     
     # Run main application
     main()
