@@ -56,6 +56,8 @@ def initialize_session_state():
         st.session_state.high_contrast = False
     if "co2_savings" not in st.session_state:
         st.session_state.co2_savings = 0.0
+    if "user_preferences_set" not in st.session_state:
+        st.session_state.user_preferences_set = False
 
     # Define default user preferences structure
     DEFAULT_USER_PREFERENCES = {
@@ -63,7 +65,10 @@ def initialize_session_state():
         'disliked_movies': [],
         'preferred_genres': [],
         'watchlist': [],
-        'mood_preferences': []
+        'mood_preferences': [],
+        'preferred_era': "Any",
+        'preferred_actors': [],
+        'preferred_directors': []
     }
 
     if "user_preferences" not in st.session_state:
@@ -524,7 +529,8 @@ def save_user_profile(username):
         profile_path = os.path.join(USER_PROFILES_DIR, f"{username}_profile.pkl")
         profile_data = {
             'user_vector': st.session_state.user_vector,
-            'user_preferences': st.session_state.user_preferences
+            'user_preferences': st.session_state.user_preferences,
+            'user_preferences_set': st.session_state.user_preferences_set
         }
         with open(profile_path, 'wb') as f:
             pickle.dump(profile_data, f)
@@ -545,7 +551,10 @@ def load_user_profile(username):
                 'disliked_movies': [],
                 'preferred_genres': [],
                 'watchlist': [],
-                'mood_preferences': []
+                'mood_preferences': [],
+                'preferred_era': "Any",
+                'preferred_actors': [],
+                'preferred_directors': []
             }
             
             loaded_prefs = profile_data.get('user_preferences', {})
@@ -553,8 +562,9 @@ def load_user_profile(username):
                 if key not in loaded_prefs:
                     loaded_prefs[key] = DEFAULT_USER_PREFERENCES[key]
                     
-            st.session_state.user_vector = profile_data['user_vector']
+            st.session_state.user_vector = profile_data.get('user_vector', None)
             st.session_state.user_preferences = loaded_prefs
+            st.session_state.user_preferences_set = profile_data.get('user_preferences_set', False)
             return True
     except Exception as e:
         st.error(f"Error loading user profile: {str(e)}")
@@ -615,8 +625,12 @@ def initialize_user_profile(username):
                 'disliked_movies': [],
                 'preferred_genres': [],
                 'watchlist': [],
-                'mood_preferences': []
+                'mood_preferences': [],
+                'preferred_era': "Any",
+                'preferred_actors': [],
+                'preferred_directors': []
             }
+            st.session_state.user_preferences_set = False
             save_user_profile(username)
     except Exception as e:
         st.error(f"Error initializing user profile: {str(e)}")
@@ -786,6 +800,66 @@ def advanced_hybrid_recommendation(title=None, user_id=None, top_n=10, selected_
         st.error(f"Error generating recommendations: {str(e)}")
         return pd.DataFrame()
 
+def get_personalized_recommendations(top_n=5):
+    """Get personalized recommendations based on user preferences"""
+    try:
+        movies_df, _, precomputed = st.session_state.cached_data
+        
+        # If user has liked movies, use them to generate recommendations
+        if st.session_state.user_preferences.get('liked_movies', []):
+            # Create a synthetic "favorite movie" based on user preferences
+            user_vector = st.session_state.user_vector
+            query_vector = user_vector.reshape(1, -1)
+            _, indices = precomputed['faiss_index'].search(query_vector, top_n*2)
+            results = movies_df.iloc[indices[0]]
+        else:
+            # Use preferred genres and other preferences
+            preferred_genres = st.session_state.user_preferences.get('preferred_genres', [])
+            preferred_era = st.session_state.user_preferences.get('preferred_era', "Any")
+            preferred_actors = st.session_state.user_preferences.get('preferred_actors', [])
+            preferred_directors = st.session_state.user_preferences.get('preferred_directors', [])
+            
+            # Start with all movies
+            results = movies_df.copy()
+            
+            # Filter by preferred genres
+            if preferred_genres:
+                results = results[results['genres'].apply(
+                    lambda g: any(genre in g.split(', ') for genre in preferred_genres)
+                )]
+            
+            # Filter by preferred era
+            if preferred_era != "Any":
+                current_year = datetime.now().year
+                if preferred_era == "Recent (2010-Now)":
+                    results = results[results['release_date'] >= "2010-01-01"]
+                elif preferred_era == "Classic (Pre-2000)":
+                    results = results[results['release_date'] < "2000-01-01"]
+            
+            # Filter by preferred actors
+            if preferred_actors:
+                actor_filter = False
+                for actor in preferred_actors:
+                    actor_filter = actor_filter | results['actors'].apply(
+                        lambda x: actor.lower() in [a.lower() for a in x] if isinstance(x, list) else False
+                    )
+                results = results[actor_filter]
+            
+            # Filter by preferred directors
+            if preferred_directors:
+                director_filter = False
+                for director in preferred_directors:
+                    director_filter = director_filter | results['director'].str.contains(director, case=False)
+                results = results[director_filter]
+            
+            # Sort by popularity
+            results = results.sort_values('popularity', ascending=False)
+        
+        return results.head(top_n)
+    except Exception as e:
+        st.error(f"Error getting personalized recommendations: {str(e)}")
+        return pd.DataFrame()
+
 # =========================================
 # MODULE 6: USER PREFERENCES MANAGEMENT
 # =========================================
@@ -811,7 +885,7 @@ def update_user_preference(movie_id, action):
         match = movies_df[movies_df['id'] == movie_id]
         if not match.empty:
             movie_idx = match.index[0]
-            movie_embedding = precomputed['embeddings'][movie_idx]
+            movie_embedding = st.session_state.cached_data[2]['embeddings'][movie_idx]
             
             if action == 'like':
                 if st.session_state.user_vector is None:
@@ -852,6 +926,17 @@ def update_watchlist(movie_id, action):
         save_user_profile(st.session_state.username)
     except Exception as e:
         st.error(f"Error updating watchlist: {str(e)}")
+
+def save_user_taste_preferences():
+    """Save user's taste preferences from the form"""
+    try:
+        st.session_state.user_preferences_set = True
+        save_user_profile(st.session_state.username)
+        st.success("Preferences saved successfully! 🎉")
+        st.session_state.preferences_expanded = False
+        st.rerun()
+    except Exception as e:
+        st.error(f"Error saving preferences: {str(e)}")
 
 # =========================================
 # MODULE 7: UI COMPONENTS
@@ -991,11 +1076,79 @@ def render_login_signup():
             else:
                 st.warning("⚠️ Username already exists. Try logging in.")
 
+def render_taste_preferences_form():
+    """Render the taste preferences form"""
+    with st.expander("🎬 Tell Us Your Movie Preferences", expanded=True):
+        st.write("Help us recommend movies you'll love by telling us about your tastes:")
+        
+        # Get available data
+        movies_df, _, precomputed = st.session_state.cached_data
+        
+        # Favorite genres
+        st.subheader("Favorite Genres")
+        selected_genres = st.multiselect(
+            "Select your favorite genres (select up to 5)", 
+            precomputed['genre_set'],
+            default=st.session_state.user_preferences.get('preferred_genres', []),
+            max_selections=5
+        )
+        
+        # Preferred era
+        st.subheader("Preferred Movie Era")
+        era_options = ["Any", "Recent (2010-Now)", "Classic (Pre-2000)"]
+        selected_era = st.selectbox(
+            "Which era of movies do you prefer?",
+            era_options,
+            index=era_options.index(st.session_state.user_preferences.get('preferred_era', "Any"))
+        )
+        
+        # Favorite actors
+        st.subheader("Favorite Actors/Actresses")
+        all_actors = set()
+        for actors_list in movies_df['actors']:
+            if isinstance(actors_list, list):
+                for actor in actors_list:
+                    all_actors.add(actor)
+        selected_actors = st.multiselect(
+            "Select your favorite actors/actresses (select up to 5)",
+            sorted(all_actors),
+            default=st.session_state.user_preferences.get('preferred_actors', []),
+            max_selections=5
+        )
+        
+        # Favorite directors
+        st.subheader("Favorite Directors")
+        all_directors = set(movies_df['director'].dropna().unique())
+        selected_directors = st.multiselect(
+            "Select your favorite directors (select up to 3)",
+            sorted(all_directors),
+            default=st.session_state.user_preferences.get('preferred_directors', []),
+            max_selections=3
+        )
+        
+        # Save button
+        if st.button("Save Preferences", key="save_prefs_btn", use_container_width=True):
+            st.session_state.user_preferences['preferred_genres'] = selected_genres
+            st.session_state.user_preferences['preferred_era'] = selected_era
+            st.session_state.user_preferences['preferred_actors'] = selected_actors
+            st.session_state.user_preferences['preferred_directors'] = selected_directors
+            st.session_state.user_preferences_set = True
+            save_user_profile(st.session_state.username)
+            st.success("Preferences saved successfully! 🎉")
+            st.rerun()
+
 # =========================================
 # MODULE 8: MAIN APPLICATION LOGIC
 # =========================================
-def render_home_tab(movies_df):
+def render_home_tab():
     """Render the home tab content"""
+    # Get data
+    movies_df, _, precomputed = st.session_state.cached_data
+    
+    # Show taste preferences form if not set
+    if not st.session_state.user_preferences_set:
+        render_taste_preferences_form()
+    
     # Project description
     with st.expander("🌟 About Movie Recommender Pro", expanded=True):
         st.markdown("""
@@ -1093,11 +1246,17 @@ def render_home_tab(movies_df):
     else:
         st.info("No Bollywood movies available")
     
-    # Featured Recommendations
-    st.markdown("### ✨ Featured Recommendations")
-    featured = movies_df.sample(3)
-    for _, row in featured.iterrows():
-        movie_card(row, context="home")
+    # Personalized Recommendations
+    st.markdown("### 🎯 Personalized Recommendations For You")
+    if st.session_state.user_preferences_set:
+        personalized = get_personalized_recommendations(top_n=3)
+        if not personalized.empty:
+            for _, row in personalized.iterrows():
+                movie_card(row, context="home")
+        else:
+            st.info("No personalized recommendations found. Try expanding your preferences.")
+    else:
+        st.info("Complete your taste preferences to get personalized recommendations")
     
     # Admin Panel
     if st.session_state.username == "Vic":
@@ -1111,8 +1270,9 @@ def render_home_tab(movies_df):
             if st.button("🔄 Refresh Logs"):
                 st.rerun()
 
-def render_search_tab(movies_df):
+def render_search_tab():
     """Render the search tab content"""
+    movies_df, _, _ = st.session_state.cached_data
     st.subheader("🔍 Search Movies")
     search_term = st.text_input("Search by title, genre, or keyword")
     
@@ -1140,8 +1300,9 @@ def render_search_tab(movies_df):
         except Exception as e:
             st.error(f"Error during search: {str(e)}")
 
-def render_popular_tab(movies_df):
+def render_popular_tab():
     """Render the popular movies tab"""
+    movies_df, _, _ = st.session_state.cached_data
     st.subheader("📂 Browse Movie Database")
     
     col1, col2 = st.columns([2, 1])
@@ -1180,8 +1341,9 @@ def render_popular_tab(movies_df):
     for _, row in sorted_df.iloc[start_idx:end_idx].iterrows():
         movie_card(row, context="browse")
 
-def render_genre_tab(movies_df, precomputed):
+def render_genre_tab():
     """Render the genre filter tab"""
+    movies_df, _, precomputed = st.session_state.cached_data
     st.subheader("🎯 Discover by Genre")
     # Get available genres
     available_genres = precomputed['genre_set']
@@ -1222,8 +1384,9 @@ def render_genre_tab(movies_df, precomputed):
     else:
         st.warning("Please select at least one genre")
 
-def render_latest_tab(movies_df):
+def render_latest_tab():
     """Render the latest releases tab"""
+    movies_df, _, precomputed = st.session_state.cached_data
     st.subheader("🎬 Latest Movie Releases")
     
     # Year selector
@@ -1272,8 +1435,9 @@ def render_latest_tab(movies_df):
     else:
         st.warning(f"No movies found for {selected_year} with selected genres.")
 
-def render_analytics_tab(movies_df):
+def render_analytics_tab():
     """Render the analytics tab"""
+    movies_df, _, _ = st.session_state.cached_data
     st.subheader("📊 Movie Analytics Dashboard")
     
     tab1, tab2, tab3 = st.tabs(["Genre Analysis", "Rating Insights", "Word Cloud"])
@@ -1333,8 +1497,9 @@ def render_analytics_tab(movies_df):
         else:
             st.warning("No overview text available")
 
-def render_actor_director_tab(movies_df):
+def render_actor_director_tab():
     """Render the actor/director tab"""
+    movies_df, _, _ = st.session_state.cached_data
     st.subheader("🎭 Find Movies by Actor or Director")
     
     col1, col2 = st.columns([3, 1])
@@ -1639,22 +1804,20 @@ def main_app():
         "👤 Profile"
     ])
     
-    movies_df, _, precomputed = st.session_state.cached_data
-    
     with tabs[0]:
-        render_home_tab(movies_df)
+        render_home_tab()
     with tabs[1]:
-        render_search_tab(movies_df)
+        render_search_tab()
     with tabs[2]:
-        render_popular_tab(movies_df)
+        render_popular_tab()
     with tabs[3]:
-        render_genre_tab(movies_df, precomputed)
+        render_genre_tab()
     with tabs[4]:
-        render_latest_tab(movies_df)
+        render_latest_tab()
     with tabs[5]:
-        render_analytics_tab(movies_df)
+        render_analytics_tab()
     with tabs[6]:
-        render_actor_director_tab(movies_df)
+        render_actor_director_tab()
     with tabs[7]:
         render_hybrid_tab()
     with tabs[8]:
