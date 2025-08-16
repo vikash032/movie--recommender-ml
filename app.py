@@ -1,2703 +1,2179 @@
+# 🔧 Disable Streamlit file watcher
+import os
+os.environ["STREAMLIT_DISABLE_WATCHDOG_WARNINGS"] = "1"
+os.environ["STREAMLIT_WATCH_FILES"] = "false"
+os.environ["PYTHONWARNINGS"] = "ignore"
+
+# ✅ Torch patch
 import torch
+try:
+    torch.classes.__path__ = []
+except Exception:
+    pass
+
+# =========================================
+# MODULE 1: CONFIGURATION & INITIALIZATION
+# =========================================
+import warnings
 import streamlit as st
-import yfinance as yf
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
-from prophet import Prophet
-from prophet.plot import plot_plotly, plot_components_plotly
-from transformers import pipeline
-from datetime import datetime, timedelta
-import cvxpy as cp
-from sklearn.preprocessing import MinMaxScaler
-from streamlit_autorefresh import st_autorefresh
-import requests
-import os
-import re
-import ta
-import warnings
-from sklearn.metrics import mean_squared_error, mean_absolute_error
-from keras.models import Sequential
-from keras.layers import Dense
-from keras.optimizers import Adam
-import time
-import random
-from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
-from pytorch_forecasting.data import GroupNormalizer
-import pytorch_lightning as pl
-from pytorch_lightning.callbacks import EarlyStopping
-import shap
 import matplotlib.pyplot as plt
-from sklearn.ensemble import RandomForestRegressor
-import logging
-from dotenv import load_dotenv
-from scipy.optimize import minimize
-import holidays
-import json
-from sklearn.model_selection import TimeSeriesSplit
-from pytorch_forecasting.metrics import QuantileLoss
-from pytorch_forecasting.models.temporal_fusion_transformer.tuning import optimize_hyperparameters
-import optuna
-import redis
-import schedule
-import threading
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-import calendar
-
-# ------------------ CONFIGURATION ------------------
-# Initialize logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-# Load environment variables
-load_dotenv()
+import seaborn as sns
+import pickle
+import requests
+import faiss
+import time
+import uuid
+import re
+from datetime import datetime
+from wordcloud import WordCloud
+from collections import defaultdict, Counter
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sentence_transformers import SentenceTransformer
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
 
-# Page configuration
-st.set_page_config(
-    page_title="Quantum Stock Analytics",
-    page_icon="🚀",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# Initialize session state
+def initialize_session_state():
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+    if "username" not in st.session_state:
+        st.session_state.username = ""
+    if "user_vector" not in st.session_state:
+        st.session_state.user_vector = None
+    if "selected_movie" not in st.session_state:
+        st.session_state.selected_movie = None
+    if "hybrid_recs" not in st.session_state:
+        st.session_state.hybrid_recs = None
+    if "content_recs" not in st.session_state:
+        st.session_state.content_recs = None
+    if "cached_data" not in st.session_state:
+        st.session_state.cached_data = None
+    if "high_contrast" not in st.session_state:
+        st.session_state.high_contrast = False
+    if "co2_savings" not in st.session_state:
+        st.session_state.co2_savings = 0.0
+    if "user_preferences_set" not in st.session_state:
+        st.session_state.user_preferences_set = False
 
-# Auto-refresh every 2 minutes
-st_autorefresh(interval=120000, key="data_refresh")
-
-# ------------------ MODULES ------------------
-# Module 1: Data Fetching
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=50)
-def get_stock_data(ticker, start, end):
-    """Fetch stock data from Yahoo Finance with robust error handling"""
-    try:
-        logger.info(f"Fetching data for {ticker} from {start} to {end}")
-        data = yf.download(ticker, start=start - timedelta(days=60), end=end + timedelta(days=1))
-        
-        if data.empty:
-            logger.warning(f"No data found for {ticker}, trying 1-year period")
-            data = yf.download(ticker, period="1y")
-            if data.empty:
-                raise ValueError(f"No data available for {ticker}")
-        
-        # Validate data structure
-        required_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
-        for col in required_columns:
-            if col not in data.columns:
-                raise ValueError(f"Missing required column: {col}")
-                
-        return data
-    except Exception as e:
-        logger.error(f"Data fetch error: {str(e)}")
-        st.error(f"Data fetch error: {str(e)}. Please try a different ticker or date range.")
-        return pd.DataFrame()
-
-# Module 2: Technical Analysis
-def calculate_technical_indicators(data):
-    """Calculate various technical indicators for stock data"""
-    if 'Close' not in data.columns or len(data) < 20:
-        return data
-    
-    close_series = data['Close'].squeeze()
-    
-    # Moving Averages
-    try:
-        data['SMA20'] = close_series.rolling(window=20).mean()
-        data['SMA50'] = close_series.rolling(window=50).mean()
-        data['EMA20'] = close_series.ewm(span=20, adjust=False).mean()
-    except Exception as e:
-        logger.error(f"Error calculating moving averages: {str(e)}")
-    
-    # RSI
-    try:
-        data['RSI'] = ta.momentum.rsi(close_series, window=14)
-    except Exception as e:
-        logger.error(f"Error calculating RSI: {str(e)}")
-    
-    # MACD
-    try:
-        macd = ta.trend.MACD(close_series)
-        data['MACD'] = macd.macd()
-        data['MACD_Signal'] = macd.macd_signal()
-        data['MACD_Hist'] = macd.macd_diff()
-    except Exception as e:
-        logger.error(f"Error calculating MACD: {str(e)}")
-    
-    # Bollinger Bands
-    try:
-        bollinger = ta.volatility.BollingerBands(close_series, window=20, window_dev=2)
-        data['BB_Upper'] = bollinger.bollinger_hband()
-        data['BB_Lower'] = bollinger.bollinger_lband()
-        data['BB_Width'] = bollinger.bollinger_hband() - bollinger.bollinger_lband()
-    except Exception as e:
-        logger.error(f"Error calculating Bollinger Bands: {str(e)}")
-    
-    # Volatility
-    try:
-        returns = close_series.pct_change()
-        data['Volatility'] = returns.rolling(window=20).std() * np.sqrt(252)
-    except Exception as e:
-        logger.error(f"Error calculating volatility: {str(e)}")
-    
-    # Lagged returns
-    for i in [1, 3, 5, 7]:
-        data[f'Return_{i}d'] = close_series.pct_change(i)
-    
-    return data.dropna()
-
-# Module 3: Sentiment Analysis
-@st.cache_resource(show_spinner=False)
-def load_sentiment_model():
-    """Load and cache the sentiment analysis model"""
-    logger.info("Loading sentiment model")
-    return pipeline("sentiment-analysis", model="ProsusAI/finbert")
-
-@st.cache_data(ttl=600, show_spinner=False)
-def get_news(ticker):
-    """Fetch news articles related to a stock ticker"""
-    logger.info(f"Fetching news for {ticker}")
-    api_key = os.getenv("NEWS_API_KEY") or st.secrets.get("NEWS_API_KEY")
-    if not api_key:
-        logger.error("News API key not found")
-        st.error("News API key not configured. News features disabled.")
-        return []
-    
-    company_map = {
-        "NTPC.NS": "NTPC",
-        "VMM.NS": "Vishnu Chemicals",
-        "SAGILITY.NS": "Sagility India",
-        "TATAMOTORS.NS": "Tata Motors",
-        "TCS.NS": "TCS",
-        "SBIN.NS": "SBI",
-        "KALYANKJIL.NS": "Kalyan Jewellers",
-        "SWANENERGY.NS": "Swan Energy",
-        "PRAJIND.NS": "Praj Industries",
-        "RELIANCE.NS": "Reliance Industries",
-        "HDFCBANK.NS": "HDFC Bank",
-        "INFY.NS": "Infosys",
-        "ICICIBANK.NS": "ICICI Bank",
-        "HINDUNILVR.NS": "Hindustan Unilever",
-        "BAJFINANCE.NS": "Bajaj Finance",
-        "LT.NS": "Larsen & Toubro",
-        "AXISBANK.NS": "Axis Bank",
-        "ADANIENT.NS": "Adani Enterprises",
-        "BHARTIARTL.NS": "Bharti Airtel",
-        "HCLTECH.NS": "HCL Technologies",
-        "KOTAKBANK.NS": "Kotak Mahindra Bank",
-        "ITC.NS": "ITC",
-        "ASIANPAINT.NS": "Asian Paints",
-        "MARUTI.NS": "Maruti Suzuki",
-        "TITAN.NS": "Titan Company",
-        "SUNPHARMA.NS": "Sun Pharma"
-    }
-    
-    query = company_map.get(ticker, ticker.split('.')[0])
-    url = f"https://newsapi.org/v2/everything?q={query}&language=en&sortBy=publishedAt&pageSize=5&apiKey={api_key}"
-    
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
-        if data.get("status") != "ok":
-            logger.error(f"News API error: {data.get('message', 'Unknown error')}")
-            return []
-            
-        return [
-            {
-                "title": a.get("title", ""),
-                "summary": a.get("description", ""),
-                "link": a.get("url", ""),
-                "date": a.get("publishedAt", ""),
-                "source": a.get("source", {}).get("name", "")
-            } for a in data.get("articles", [])
-        ]
-    except Exception as e:
-        logger.error(f"News error: {e}")
-        return []
-
-# Module 4: Forecasting
-def prophet_forecast(data, forecast_days, country='IN'):
-    """Perform time series forecasting using Prophet with holidays and technical indicators"""
-    if len(data) < 90:
-        raise ValueError("Need at least 90 days of data for forecasting")
-    
-    # Create holiday dataframe for the country
-    years = pd.date_range(start=data.index.min(), end=data.index.max() + timedelta(days=forecast_days)).year
-    all_years = list(range(min(years), max(years)+1))
-    country_holidays = holidays.CountryHoliday(country, years=all_years)
-    holiday_df = pd.DataFrame([(date, name) for date, name in country_holidays.items()], columns=['ds', 'holiday'])
-    
-    prophet_df = data[['Close']].reset_index()
-    prophet_df.columns = ['ds', 'y']
-    
-    # Add technical indicators as regressors
-    model = Prophet(
-        daily_seasonality=False,
-        yearly_seasonality=True,
-        weekly_seasonality=True,
-        changepoint_prior_scale=0.001,  # Reduced to prevent overfitting
-        seasonality_prior_scale=10,
-        changepoint_range=0.8,
-        interval_width=0.95,  # Wider confidence interval
-        uncertainty_samples=100,
-        holidays=holiday_df
-    )
-    
-    # Add custom seasonalities
-    model.add_seasonality(name='monthly', period=30.5, fourier_order=5)
-    model.add_seasonality(name='quarterly', period=91.25, fourier_order=7)
-    
-    # Add technical indicators as regressors
-    tech_indicators = ['SMA20', 'SMA50', 'EMA20', 'RSI', 'MACD', 'MACD_Hist', 'BB_Width', 'Volatility']
-    for indicator in tech_indicators:
-        if indicator in data.columns:
-            prophet_df[indicator] = data[indicator].values
-            model.add_regressor(indicator)
-    
-    model.fit(prophet_df)
-    future = model.make_future_dataframe(periods=forecast_days)
-    
-    # Add future technical indicators (using the last known values as placeholders)
-    for indicator in tech_indicators:
-        if indicator in data.columns:
-            last_value = data[indicator].iloc[-1]
-            future[indicator] = last_value
-    
-    forecast = model.predict(future)
-    return model, forecast
-
-def tune_tft_hyperparameters(train_dataloader, val_dataloader):
-    """Optimize TFT hyperparameters using Optuna"""
-    logger.info("Tuning TFT hyperparameters...")
-    
-    def objective(trial):
-        hidden_size = trial.suggest_int("hidden_size", 8, 32)
-        dropout = trial.suggest_float("dropout", 0.1, 0.5)
-        learning_rate = trial.suggest_float("learning_rate", 1e-3, 1e-1, log=True)
-        attention_head_size = trial.suggest_int("attention_head_size", 1, 4)
-        hidden_continuous_size = trial.suggest_int("hidden_continuous_size", 4, 16)
-        
-        early_stop_callback = EarlyStopping(monitor="val_loss", min_delta=1e-4, patience=3, verbose=False, mode="min")
-        
-        tft = TemporalFusionTransformer.from_dataset(
-            train_dataloader.dataset,
-            learning_rate=learning_rate,
-            hidden_size=hidden_size,
-            attention_head_size=attention_head_size,
-            dropout=dropout,
-            hidden_continuous_size=hidden_continuous_size,
-            output_size=3,
-            loss=QuantileLoss(quantiles=[0.1, 0.5, 0.9]),
-            reduce_on_plateau_patience=2,
-        )
-        
-        trainer = pl.Trainer(
-            max_epochs=15,
-            gpus=0,
-            enable_progress_bar=False,
-            gradient_clip_val=0.1,
-            callbacks=[early_stop_callback],
-            limit_train_batches=15,
-            enable_checkpointing=True,
-        )
-        
-        trainer.fit(tft, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
-        return trainer.callback_metrics["val_loss"].item()
-    
-    study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=10)
-    
-    logger.info(f"Best hyperparameters: {study.best_params}")
-    return study.best_params
-
-def tft_forecast(data, forecast_days, tune=False):
-    """Perform time series forecasting using Temporal Fusion Transformer"""
-    # Add technical indicators
-    data = calculate_technical_indicators(data.copy())
-    
-    # Prepare data for TFT
-    df = data.reset_index()
-    df.rename(columns={'Date': 'date'}, inplace=True)
-    df['time_idx'] = np.arange(len(df))
-    df['series'] = "stock"
-    df['date'] = pd.to_datetime(df['date'])
-    
-    # Add additional features
-    df['day'] = df['date'].dt.day.astype(str)
-    df['dayofweek'] = df['date'].dt.dayofweek.astype(str)
-    df['month'] = df['date'].dt.month.astype(str)
-    df['quarter'] = df['date'].dt.quarter.astype(str)
-    
-    # Define features
-    features = ['Close', 'SMA20', 'SMA50', 'EMA20', 'RSI', 'MACD', 'MACD_Signal', 
-                'MACD_Hist', 'BB_Upper', 'BB_Lower', 'BB_Width', 'Volatility',
-                'Return_1d', 'Return_3d', 'Return_5d', 'Return_7d']
-    
-    available_features = [f for f in features if f in df.columns]
-    
-    # Define training parameters
-    max_prediction_length = forecast_days
-    max_encoder_length = min(180, len(df) - max_prediction_length - 1)
-    
-    if max_encoder_length < 60:
-        raise ValueError("Insufficient data for TFT forecasting. Need at least 60 days of data.")
-    
-    training_cutoff = df["time_idx"].max() - max_prediction_length
-    
-    # Create dataset
-    training = TimeSeriesDataSet(
-        df[df["time_idx"] <= training_cutoff],
-        time_idx="time_idx",
-        target="Close",
-        group_ids=["series"],
-        min_encoder_length=max_encoder_length // 2,
-        max_encoder_length=max_encoder_length,
-        min_prediction_length=1,
-        max_prediction_length=max_prediction_length,
-        static_categoricals=["series"],
-        time_varying_known_categoricals=["day", "dayofweek", "month", "quarter"],
-        time_varying_known_reals=["time_idx"],
-        time_varying_unknown_reals=available_features,
-        target_normalizer=GroupNormalizer(groups=["series"], transformation="softplus"),
-        add_relative_time_idx=True,
-        add_target_scales=True,
-        add_encoder_length=True,
-    )
-    
-    # Create validation set
-    validation = TimeSeriesDataSet.from_dataset(training, df, predict=True, stop_randomization=True)
-    
-    # Create dataloaders
-    batch_size = 16
-    train_dataloader = training.to_dataloader(train=True, batch_size=batch_size, num_workers=0)
-    val_dataloader = validation.to_dataloader(train=False, batch_size=batch_size, num_workers=0)
-    
-    # Tune hyperparameters if requested
-    best_params = {
-        'hidden_size': 16,
-        'attention_head_size': 2,
-        'dropout': 0.1,
-        'learning_rate': 0.01,
-        'hidden_continuous_size': 8
-    }
-    
-    if tune:
-        try:
-            best_params = tune_tft_hyperparameters(train_dataloader, val_dataloader)
-        except Exception as e:
-            logger.error(f"Hyperparameter tuning failed: {str(e)}")
-    
-    # Configure TFT with best parameters
-    pl.seed_everything(42)
-    early_stop_callback = EarlyStopping(monitor="val_loss", min_delta=1e-4, patience=5, verbose=False, mode="min")
-    
-    tft = TemporalFusionTransformer.from_dataset(
-        training,
-        learning_rate=best_params['learning_rate'],
-        hidden_size=best_params['hidden_size'],
-        attention_head_size=best_params['attention_head_size'],
-        dropout=best_params['dropout'],
-        hidden_continuous_size=best_params['hidden_continuous_size'],
-        output_size=3,
-        loss=QuantileLoss(quantiles=[0.1, 0.5, 0.9]),
-        reduce_on_plateau_patience=3,
-    )
-    
-    # Train model
-    trainer = pl.Trainer(
-        max_epochs=20,
-        gpus=0,
-        enable_progress_bar=False,
-        gradient_clip_val=0.1,
-        callbacks=[early_stop_callback],
-        limit_train_batches=20,
-        enable_checkpointing=True,
-    )
-    
-    trainer.fit(tft, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
-    
-    # Generate predictions
-    raw_predictions, x = tft.predict(val_dataloader, mode="raw", return_x=True)
-    
-    # Extract forecast values
-    forecast = raw_predictions[0].output.prediction[1].cpu().numpy().flatten()  # P50
-    lower_band = raw_predictions[0].output.prediction[0].cpu().numpy().flatten()  # P10
-    upper_band = raw_predictions[0].output.prediction[2].cpu().numpy().flatten()  # P90
-    
-    # Get actual values for comparison
-    actuals = torch.cat([y[0] for x, y in iter(val_dataloader)]).cpu().numpy()
-    
-    # Calculate RMSE
-    train_rmse = np.sqrt(mean_squared_error(actuals.flatten()[:len(forecast)], forecast))
-    
-    # Extract attention weights
-    attention = tft.interpret_output(raw_predictions, reduction="none")[1]['attention'][0].detach().cpu().numpy()
-    
-    # Calculate feature importance using SHAP
-    explainer = shap.DeepExplainer(tft, val_dataloader)
-    shap_values = explainer.shap_values(val_dataloader)
-    
-    return {
-        'forecast': forecast,
-        'upper_band': upper_band,
-        'lower_band': lower_band,
-        'train_rmse': train_rmse,
-        'test_rmse': train_rmse,
-        'attention': attention,
-        'shap_values': shap_values,
-        'features': available_features,
-        'model': tft
+    # Define default user preferences structure
+    DEFAULT_USER_PREFERENCES = {
+        'liked_movies': [],
+        'disliked_movies': [],
+        'preferred_genres': [],
+        'watchlist': [],
+        'mood_preferences': [],
+        'preferred_era': "Any",
+        'preferred_actors': [],
+        'preferred_directors': []
     }
 
-def ensemble_forecast(prophet_forecast, tft_forecast, actuals, forecast_days):
-    """Combine Prophet and TFT forecasts using weighted averaging"""
-    # Calculate weights based on recent performance
-    prophet_mae = mean_absolute_error(actuals[-30:], prophet_forecast[-30-forecast_days:-forecast_days])
-    tft_mae = mean_absolute_error(actuals[-30:], tft_forecast[:30])
-    
-    # Use inverse MAE as weights
-    prophet_weight = 1 / prophet_mae
-    tft_weight = 1 / tft_mae
-    total_weight = prophet_weight + tft_weight
-    
-    # Normalize weights
-    prophet_weight /= total_weight
-    tft_weight /= total_weight
-    
-    # Combine forecasts
-    combined_forecast = (prophet_forecast[-forecast_days:] * prophet_weight + 
-                         tft_forecast * tft_weight)
-    
-    return combined_forecast, prophet_weight, tft_weight
+    if "user_preferences" not in st.session_state:
+        st.session_state.user_preferences = DEFAULT_USER_PREFERENCES.copy()
 
-# Module 5: Portfolio Optimization
-@st.cache_data(ttl=3600, show_spinner=False)
-def prepare_portfolio_data(tickers, start_date, end_date):
-    """Prepare portfolio data for multiple tickers"""
-    price_data = {}
-    for ticker in tickers:
-        try:
-            df = yf.download(ticker, start=start_date - timedelta(days=60), end=end_date + timedelta(days=1))
-            if df.empty:
-                logger.warning(f"No data for {ticker}, skipping...")
-                continue
-            price_data[ticker] = df['Close']
-        except Exception as e:
-            logger.error(f"Error loading {ticker}: {str(e)}")
-            continue
+# Configure Streamlit page
+def configure_page():
+    st.set_page_config(
+        page_title="🎬 Movie Recommender Pro", 
+        layout="wide", 
+        page_icon="🎥", 
+        initial_sidebar_state="expanded"
+    )
 
-    if not price_data:
-        return pd.DataFrame()
+# =========================================
+# MODULE 2: UTILITIES & HELPER FUNCTIONS
+# =========================================
+def format_currency(amount):
+    """Format currency amounts for display"""
+    if pd.isna(amount) or amount <= 0:
+        return "N/A"
+    return f"${amount:,.0f}"
 
-    combined_df = pd.concat(price_data.values(), axis=1, keys=price_data.keys())
-    combined_df.columns = combined_df.columns.droplevel(1)
-    return combined_df.dropna(how='all')
+def log_event(user, movie, action):
+    """Log user events to CSV files"""
+    try:
+        os.makedirs('user_data', exist_ok=True)
+        log_file = f'user_data/{user}_log.csv'
+        
+        if not os.path.exists(log_file):
+            with open(log_file, 'w') as f:
+                f.write("Timestamp,Movie,Action\n")
+        
+        with open(log_file, 'a') as f:
+            f.write(f"{datetime.now()},{movie},{action}\n")
+    except Exception as e:
+        st.error(f"Error logging event: {str(e)}")
 
-def optimize_portfolio(returns, risk_tolerance):
-    """Optimize portfolio using Modern Portfolio Theory"""
-    if returns.empty or returns.shape[1] < 2:
+def display_poster(poster_path, class_name="poster-container", width=200):
+    """Display movie poster with lazy loading and error handling"""
+    try:
+        if poster_path:
+            poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+            st.markdown(
+                f"""
+                <div class="{class_name}" style="width:{width}px">
+                    <img src="{poster_url}" class="poster-img" alt="Movie Poster" loading="lazy" 
+                         onerror="this.onerror=null; this.src='https://via.placeholder.com/300x450?text=Poster+Not+Available';">
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            return True
+    except Exception as e:
+        st.error(f"Error displaying poster: {str(e)}")
+    
+    # Show placeholder if no poster found
+    st.markdown(
+        f"""
+        <div class="{class_name}" style="width:{width}px">
+            <div style="background:#333; border-radius:10px; width:100%; height:300px; display:flex; align-items:center; justify-content:center;">
+                <span style="color:#aaa; text-align:center;">No Poster<br>Available</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    return False
+
+def find_movie_by_title(title, movies_df):
+    """Find movie by title with fuzzy matching"""
+    try:
+        # Exact match
+        if title in movies_df['title'].values:
+            return title
+        
+        # Fuzzy match
+        matches = movies_df[movies_df['title'].str.contains(title, case=False)]
+        if not matches.empty:
+            return matches.iloc[0]['title']
+        
+        # Try fuzzy matching
+        all_titles = movies_df['title'].tolist()
+        for t in all_titles:
+            if title.lower() in t.lower():
+                return t
+    except Exception as e:
+        st.error(f"Error finding movie: {str(e)}")
+    
+    return None
+
+# =========================================
+# MODULE 3: DATA LOADING & CACHING
+# =========================================
+@st.cache_resource
+def load_model():
+    """Load and cache the sentence transformer model"""
+    return SentenceTransformer('all-MiniLM-L6-v2')
+
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def fetch_realtime_data(api_key):
+    """Fetch real-time trending movies and new releases"""
+    try:
+        # Fetch trending movies
+        trending_url = f"https://api.themoviedb.org/3/trending/movie/day?api_key={api_key}"
+        trending_response = requests.get(trending_url, timeout=10).json()
+        trending_movies = trending_response.get('results', [])[:10]
+        
+        # Fetch new releases
+        now = datetime.now()
+        release_date = now.strftime("%Y-%m-%d")
+        new_releases_url = f"https://api.themoviedb.org/3/discover/movie?api_key={api_key}&primary_release_date.gte={release_date}&sort_by=release_date.asc"
+        new_releases_response = requests.get(new_releases_url, timeout=10).json()
+        new_releases = new_releases_response.get('results', [])[:10]
+        
+        # Fetch popular web series
+        web_series_url = f"https://api.themoviedb.org/3/tv/popular?api_key={api_key}"
+        web_series_response = requests.get(web_series_url, timeout=10).json()
+        web_series = web_series_response.get('results', [])[:10]
+        
+        return {
+            'trending': trending_movies,
+            'new_releases': new_releases,
+            'web_series': web_series
+        }
+    except Exception as e:
+        st.error(f"Error fetching real-time data: {str(e)}")
+        return {
+            'trending': [],
+            'new_releases': [],
+            'web_series': []
+        }
+
+@st.cache_data(ttl=3600*24)  # Cache for 24 hours
+def fetch_movie_details(movie_id, api_key):
+    """Fetch detailed movie info including credits"""
+    try:
+        url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={api_key}&append_to_response=credits"
+        data = requests.get(url, timeout=10).json()
+        
+        # Extract director
+        director = "Unknown"
+        if 'credits' in data and 'crew' in data['credits']:
+            for person in data['credits']['crew']:
+                if person['job'] == 'Director':
+                    director = person['name']
+                    break
+        
+        # Extract top 3 actors
+        actors = []
+        if 'credits' in data and 'cast' in data['credits']:
+            cast = data['credits']['cast']
+            actors = [person['name'] for person in cast[:3]]
+        
+        # Extract genres
+        genres = []
+        if 'genres' in data:
+            genres = [g['name'] for g in data['genres']]
+        
+        # Get poster path
+        poster_path = data.get('poster_path', None)
+        
+        return {
+            'id': movie_id,
+            'title': data.get('title', 'Unknown Title'),
+            'release_date': data.get('release_date', ''),
+            'overview': data.get('overview', 'No overview available.'),
+            'vote_average': data.get('vote_average', 0),
+            'vote_count': data.get('vote_count', 0),
+            'popularity': data.get('popularity', 0),
+            'budget': data.get('budget', 0),
+            'genres': ', '.join(genres),
+            'director': director,
+            'actors': actors,
+            'poster_path': poster_path,
+            'original_language': data.get('original_language', 'en')
+        }
+    except Exception as e:
+        st.error(f"Error fetching details for movie {movie_id}: {str(e)}")
         return None
 
-    mu = returns.mean().values
-    Sigma = returns.cov().values
-    n = len(mu)
+@st.cache_data(ttl=3600*24)  # Cache for 24 hours
+def fetch_popular_movies_by_year(years, api_key, movies_per_year=50):
+    """Fetch popular movies for multiple years with minimal data"""
+    all_movies = []
+    for year in years:
+        try:
+            # Fetch Hollywood movies
+            url = f"https://api.themoviedb.org/3/discover/movie"
+            params = {
+                'api_key': api_key,
+                'primary_release_year': year,
+                'sort_by': 'popularity.desc',
+                'page': 1
+            }
+            response = requests.get(url, params=params, timeout=10).json()
+            movies = response.get('results', [])[:movies_per_year]
+            all_movies.extend([{
+                'id': m['id'],
+                'title': m.get('title', 'Unknown Title'),
+                'release_date': m.get('release_date', f'{year}-01-01'),
+                'poster_path': m.get('poster_path', None),
+                'is_bollywood': False
+            } for m in movies])
+            
+            # Fetch Bollywood movies
+            bollywood_params = {
+                'api_key': api_key,
+                'primary_release_year': year,
+                'sort_by': 'popularity.desc',
+                'page': 1,
+                'with_original_language': 'hi'  # Hindi language
+            }
+            bollywood_response = requests.get(url, params=bollywood_params, timeout=10).json()
+            bollywood_movies = bollywood_response.get('results', [])[:min(30, movies_per_year//2)]
+            all_movies.extend([{
+                'id': m['id'],
+                'title': m.get('title', 'Unknown Title'),
+                'release_date': m.get('release_date', f'{year}-01-01'),
+                'poster_path': m.get('poster_path', None),
+                'is_bollywood': True
+            } for m in bollywood_movies])
+            
+        except Exception as e:
+            st.error(f"Error fetching movies for {year}: {str(e)}")
     
-    w = cp.Variable(n)
-    gamma = cp.Parameter(nonneg=True)
-    gamma.value = risk_tolerance
+    return all_movies
 
-    ret = mu.T @ w
-    risk = cp.quad_form(w, Sigma)
-
-    prob = cp.Problem(cp.Maximize(ret - gamma * risk),
-                     [cp.sum(w) == 1, w >= 0])
-    
+@st.cache_data(ttl=3600*24)  # Cache for 24 hours
+def fetch_movies_by_actor(actor_name, api_key):
+    """Fetch movies featuring a specific actor"""
     try:
-        prob.solve()
-        return w.value
+        # Search for person
+        search_url = f"https://api.themoviedb.org/3/search/person?api_key={api_key}&query={actor_name}"
+        search_data = requests.get(search_url, timeout=10).json()
+        
+        if not search_data.get('results'):
+            return []
+        
+        person_id = search_data['results'][0]['id']
+        
+        # Get person credits
+        credits_url = f"https://api.themoviedb.org/3/person/{person_id}/movie_credits?api_key={api_key}"
+        credits_data = requests.get(credits_url, timeout=10).json()
+        
+        # Get movies where person is actor
+        movies = []
+        for movie in credits_data.get('cast', []):
+            movies.append({
+                'id': movie['id'],
+                'title': movie.get('title', 'Unknown'),
+                'release_date': movie.get('release_date', ''),
+                'poster_path': movie.get('poster_path', None),
+                'is_bollywood': True if actor_name in [
+                    "Shah Rukh Khan", "Salman Khan", "Aamir Khan", "Akshay Kumar", "Hrithik Roshan",
+                    "Ranbir Kapoor", "Ranveer Singh", "Vicky Kaushal", "Shahid Kapoor", "Ayushmann Khurrana",
+                    "Tiger Shroff", "Varun Dhawan", "Sidharth Malhotra", "Kartik Aaryan", "Rajkummar Rao",
+                    "Pankaj Tripathi", "Nawazuddin Siddiqui", "Manoj Bajpayee", "Vikrant Massey", "Sunny Deol",
+                    "Bobby Deol", "Arjun Kapoor", "Aditya Roy Kapur", "Emraan Hashmi", "Abhishek Bachchan",
+                    "Farhan Akhtar", "John Abraham", "Sanjay Dutt", "Ajay Devgn", "Saif Ali Khan", "Prabhas",
+                    "Deepika Padukone", "Alia Bhatt", "Katrina Kaif", "Kareena Kapoor Khan", "Priyanka Chopra Jonas",
+                    "Kiara Advani", "Anushka Sharma", "Taapsee Pannu", "Janhvi Kapoor", "Sara Ali Khan",
+                    "Kriti Sanon", "Bhumi Pednekar", "Shraddha Kapoor", "Parineeti Chopra", "Yami Gautam",
+                    "Radhika Apte", "Mrunal Thakur", "Disha Patani", "Nushrratt Bharuccha", "Pooja Hegde",
+                    "Sanya Malhotra", "Huma Qureshi", "Rani Mukerji", "Vidya Balan", "Sonam Kapoor",
+                    "Nora Fatehi", "Tabu", "Kajol", "Aishwarya Rai Bachchan", "Triptii Dimri"
+                ] else False
+            })
+        
+        return movies
+        
     except Exception as e:
-        logger.error(f"Optimization failed: {str(e)}")
-        return np.ones(n) / n
+        st.error(f"Error fetching movies for {actor_name}: {str(e)}")
+        return []
 
-# Module 6: Backtesting
-def backtest_strategy(data, strategy, params):
-    """Backtest a trading strategy with realistic simulation"""
-    if len(data) < 100:
-        return {
-            'return': 0,
-            'drawdown': 0,
-            'sharpe': 0,
-            'trades': 0
-        }
-    
-    # Initialize portfolio
-    cash = 10000
-    position = 0
-    portfolio_value = [cash]
-    trades = []
-    
-    # Strategy-specific parameters
-    if strategy == "Moving Average Crossover":
-        short_window = params.get('short_window', 20)
-        long_window = params.get('long_window', 50)
-        data['SMA_short'] = data['Close'].rolling(short_window).mean()
-        data['SMA_long'] = data['Close'].rolling(long_window).mean()
-    
-    for i in range(long_window, len(data)):
-        price = data['Close'].iloc[i]
-        prev_price = data['Close'].iloc[i-1]
-        
-        # Generate signal based on strategy
-        signal = 0
-        
-        if strategy == "Moving Average Crossover":
-            if data['SMA_short'].iloc[i-1] < data['SMA_long'].iloc[i-1] and \
-               data['SMA_short'].iloc[i] > data['SMA_long'].iloc[i]:
-                signal = 1  # Golden cross - buy
-            elif data['SMA_short'].iloc[i-1] > data['SMA_long'].iloc[i-1] and \
-                 data['SMA_short'].iloc[i] < data['SMA_long'].iloc[i]:
-                signal = -1  # Death cross - sell
-        
-        # Execute trades
-        if signal == 1 and cash > 0:
-            # Buy with all cash
-            shares = cash // price
-            position += shares
-            cash -= shares * price
-            trades.append(('buy', data.index[i], price, shares))
-        elif signal == -1 and position > 0:
-            # Sell all position
-            cash += position * price
-            trades.append(('sell', data.index[i], price, position))
-            position = 0
-        
-        # Update portfolio value
-        portfolio_value.append(cash + position * price)
-    
-    # Calculate performance metrics
-    portfolio = pd.Series(portfolio_value)
-    returns = portfolio.pct_change().dropna()
-    total_return = (portfolio.iloc[-1] / portfolio.iloc[0] - 1) * 100
-    
-    # Calculate max drawdown
-    peak = portfolio.cummax()
-    drawdown = (portfolio - peak) / peak
-    max_drawdown = drawdown.min() * 100
-    
-    # Calculate Sharpe ratio
-    if returns.std() > 0:
-        sharpe = (returns.mean() * 252) / (returns.std() * np.sqrt(252))
-    else:
-        sharpe = 0
-    
-    return {
-        'return': total_return,
-        'drawdown': max_drawdown,
-        'sharpe': sharpe,
-        'trades': trades,
-        'portfolio': portfolio
-    }
-
-# Module 7: Real-time Features
-class RealTimeMonitor:
-    def __init__(self):
-        self.performance_history = []
-        self.last_retrain = datetime.now()
-        self.redis = redis.Redis(
-            host=os.getenv('REDIS_HOST', 'localhost'),
-            port=os.getenv('REDIS_PORT', 6379),
-            password=os.getenv('REDIS_PASSWORD', ''),
-            decode_responses=True
-        )
-    
-    def monitor_performance(self, model_name, rmse):
-        """Track model performance and detect degradation"""
-        self.performance_history.append({
-            'timestamp': datetime.now(),
-            'model': model_name,
-            'rmse': rmse
-        })
-        
-        # Check for performance degradation
-        if len(self.performance_history) > 5:
-            recent = self.performance_history[-5:]
-            avg_rmse = sum([r['rmse'] for r in recent]) / 5
-            prev_avg = sum([r['rmse'] for r in self.performance_history[-10:-5]]) / 5
-            
-            if avg_rmse > prev_avg * 1.05:  # 5% degradation
-                self.send_alert(f"Model performance degradation detected: {model_name}")
-                return True
-        return False
-    
-    def should_retrain(self):
-        """Determine if it's time to retrain models"""
-        # Retrain every week or if performance degrades
-        return (datetime.now() - self.last_retrain).days >= 7
-    
-    def send_alert(self, message):
-        """Send alert notification"""
-        try:
-            # Email configuration
-            smtp_server = os.getenv('SMTP_SERVER')
-            smtp_port = int(os.getenv('SMTP_PORT', 587))
-            smtp_user = os.getenv('SMTP_USER')
-            smtp_password = os.getenv('SMTP_PASSWORD')
-            recipient = os.getenv('ALERT_RECIPIENT')
-            
-            if not all([smtp_server, smtp_user, smtp_password, recipient]):
-                logger.warning("Alert configuration incomplete")
-                return
-            
-            msg = MIMEMultipart()
-            msg['From'] = smtp_user
-            msg['To'] = recipient
-            msg['Subject'] = "Stock Analytics Alert"
-            
-            body = f"""
-            <h2>Stock Analytics Alert</h2>
-            <p>{message}</p>
-            <p>Timestamp: {datetime.now()}</p>
-            """
-            msg.attach(MIMEText(body, 'html'))
-            
-            with smtplib.SMTP(smtp_server, smtp_port) as server:
-                server.starttls()
-                server.login(smtp_user, smtp_password)
-                server.send_message(msg)
-                
-            logger.info(f"Alert sent: {message}")
-        except Exception as e:
-            logger.error(f"Failed to send alert: {str(e)}")
-    
-    def cache_data(self, key, value, ttl=3600):
-        """Cache data in Redis"""
-        try:
-            self.redis.setex(key, ttl, json.dumps(value))
-        except Exception as e:
-            logger.error(f"Redis cache error: {str(e)}")
-    
-    def get_cached_data(self, key):
-        """Retrieve cached data from Redis"""
-        try:
-            data = self.redis.get(key)
-            return json.loads(data) if data else None
-        except Exception as e:
-            logger.error(f"Redis get error: {str(e)}")
-            return None
-
-# ------------------ UTILITY FUNCTIONS ------------------
-def calculate_annual_return(data, start_date, end_date):
-    """Calculate annualized return for a stock"""
-    if 'Adj Close' in data.columns:
-        price_col = 'Adj Close'
-    elif 'Close' in data.columns:
-        price_col = 'Close'
-    else:
-        return 0.0
-
-    mask = (data.index >= pd.Timestamp(start_date)) & (data.index <= pd.Timestamp(end_date))
-    filtered = data.loc[mask]
-    
-    if len(filtered) < 2:
-        return 0.0
-        
-    start_price = filtered[price_col].iloc[0]
-    end_price = filtered[price_col].iloc[-1]
-    
-    # Calculate total return percentage
-    total_return = (end_price / start_price) - 1
-    
-    # Calculate actual holding period in years
-    days_held = (filtered.index[-1] - filtered.index[0]).days
-    years_held = days_held / 365.25
-    
-    # Avoid division by zero
-    if years_held == 0:
-        return 0.0
-
-    # Calculate annualized return
-    return (1 + total_return) ** (1 / years_held) - 1
-
-def calculate_volatility(data):
-    """Calculate annualized volatility for a stock"""
-    if len(data) < 30:
-        return 0.0
-    if 'Close' in data.columns:
-        close_series = data['Close'].squeeze()
-        returns = close_series.pct_change().dropna()
-        if len(returns) < 30:
-            return 0.0
-        daily_vol = returns.std()
-        return daily_vol * np.sqrt(252)
-
-def clean_text(text):
-    """Clean text for sentiment analysis"""
-    if not text:
-        return ""
-    text = re.sub(r'http\S+', '', text)
-    text = re.sub(r'\W', ' ', text)
-    text = re.sub(r'\s+', ' ', text)
-    return text[:512]
-
-def calculate_annualized_return(series):
-    """Calculate annualized return from a price series"""
-    returns = series.pct_change().dropna()
-    if len(returns) < 2:
-        return 0.0
-    return (1 + returns).prod() ** (252/len(returns)) - 1
-
-def create_options_payoff(strike_price, premium, option_type, num_contracts=1):
-    """Calculate options payoff diagram"""
-    stock_prices = np.linspace(strike_price * 0.7, strike_price * 1.3, 100)
-    contract_size = 100  # Standard contract size
-    
-    if option_type == 'call':
-        payoff = np.maximum(stock_prices - strike_price, 0) * contract_size * num_contracts - (premium * contract_size * num_contracts)
-    else:  # put
-        payoff = np.maximum(strike_price - stock_prices, 0) * contract_size * num_contracts - (premium * contract_size * num_contracts)
-    
-    return stock_prices, payoff
-
-def get_earnings_data(ticker):
-    """Get earnings data for a stock with realistic dates"""
+@st.cache_data(ttl=3600*24)  # Cache for 24 hours
+def fetch_popular_web_series(api_key, num_series=30):
+    """Fetch popular TV shows (web series)"""
     try:
-        # Try to get real earnings data
-        company = yf.Ticker(ticker)
-        earnings = company.earnings_dates
+        url = f"https://api.themoviedb.org/3/tv/popular?api_key={api_key}"
+        response = requests.get(url, timeout=10).json()
+        series_list = response.get('results', [])[:num_series]
         
-        if earnings is not None and not earnings.empty:
-            earnings = earnings.dropna()
-            earnings['Surprise (%)'] = ((earnings['Reported EPS'] - earnings['EPS Estimate']) / 
-                                       earnings['EPS Estimate'].abs()) * 100
-            # Ensure we have recent data
-            if earnings.index.max() < pd.Timestamp('2025-01-01'):
-                # Generate mock data for 2025
-                dates = pd.date_range(start='2025-01-01', periods=4, freq='Q')
-                mock_earnings = pd.DataFrame({
-                    'Earnings Date': dates,
-                    'EPS Estimate': np.random.uniform(0.5, 2.5, 4),
-                    'Reported EPS': np.random.uniform(0.4, 2.6, 4),
-                    'Surprise (%)': np.random.uniform(-15, 15, 4)
-                })
-                mock_earnings.set_index('Earnings Date', inplace=True)
-                earnings = pd.concat([earnings, mock_earnings])
+        detailed_series = []
+        for series in series_list:
+            # Get TV show details
+            tv_url = f"https://api.themoviedb.org/3/tv/{series['id']}?api_key={api_key}"
+            tv_data = requests.get(tv_url, timeout=10).json()
             
-            return earnings.tail(4)
-    except:
-        pass
-    
-    # Create mock data for 2024-2025
-    dates = pd.date_range(start='2024-01-01', periods=8, freq='Q')
-    earnings = pd.DataFrame({
-        'Earnings Date': dates,
-        'EPS Estimate': np.random.uniform(0.5, 2.5, 8),
-        'Reported EPS': np.random.uniform(0.4, 2.6, 8),
-        'Surprise (%)': np.random.uniform(-15, 15, 8)
-    })
-    earnings.set_index('Earnings Date', inplace=True)
-    return earnings.tail(4)
-
-def generate_ai_response(query, stock_data, portfolio_data=None, risk_profile="Moderate", investment_goal="Growth"):
-    """Generate AI-powered response to investment questions"""
-    # Convert query to lower case for better matching
-    query_lower = query.lower()
-    
-    # Get technical indicators
-    if 'Close' in stock_data.columns and not stock_data.empty:
-        close_series = stock_data['Close'].squeeze()
-        rsi = ta.momentum.RSIIndicator(close_series).rsi().iloc[-1] if len(close_series) > 0 else 50
-        macd = ta.trend.MACD(close_series).macd_diff().iloc[-1] if len(close_series) > 0 else 0
-        current_price = close_series.iloc[-1] if len(close_series) > 0 else 100
-        volatility = calculate_volatility(stock_data) if len(stock_data) > 30 else 20
+            detailed_series.append({
+                'id': tv_data['id'],
+                'title': tv_data.get('name', 'Unknown'),
+                'release_date': tv_data.get('first_air_date', ''),
+                'overview': tv_data.get('overview', 'No overview available.'),
+                'vote_average': tv_data.get('vote_average', 0),
+                'vote_count': tv_data.get('vote_count', 0),
+                'popularity': tv_data.get('popularity', 0),
+                'genres': ', '.join([g['name'] for g in tv_data.get('genres', [])]),
+                'poster_path': tv_data.get('poster_path', None),
+                'type': 'Web Series',
+                'seasons': tv_data.get('number_of_seasons', 1),
+                'episodes': tv_data.get('number_of_episodes', 1),
+                'original_language': tv_data.get('original_language', 'en')
+            })
         
-        # Get comparison price (30 days ago or first available)
-        comparison_idx = max(0, len(close_series) - 30)
-        comparison_price = close_series.iloc[comparison_idx] if len(close_series) > comparison_idx else current_price
-        price_trend = "upward" if current_price > comparison_price else "downward"
-    else:
-        rsi, macd, current_price, volatility, price_trend = 50, 0, 100, 20, "neutral"
-    
-    # Define comprehensive responses with more context
-    responses = {
-        "risk": f"""
-        Based on our analysis:
-        - 30-day volatility: {volatility:.1f}% ({'above' if volatility > 30 else 'below'} sector average)
-        - RSI: {rsi:.1f} ({'overbought' if rsi > 70 else 'oversold' if rsi < 30 else 'neutral'})
-        - MACD: {'bullish' if macd > 0 else 'bearish'}
-        - Price trend: {price_trend} over last month
-        """,
-        "forecast": f"""
-        Our hybrid forecasting model predicts:
-        - Short-term (1 month): {np.random.uniform(-5,10):.1f}% change
-        - Medium-term (3 months): {np.random.uniform(-10,20):.1f}% change
-        - Long-term (1 year): {np.random.uniform(-15,30):.1f}% change
-        Technical indicators: 
-        - Support level: ${current_price * 0.95:.2f}
-        - Resistance level: ${current_price * 1.05:.2f}
-        """,
-        "portfolio": f"""
-        For your {risk_profile} risk profile and {investment_goal} investment goal:
-        - Recommended allocation: {np.random.randint(5,15)}% of portfolio
-        - Optimal entry point: ${current_price * 0.97:.2f}
-        - Position sizing: {np.random.randint(500,2000)} shares
-        - Hedge strategy: {'covered calls' if risk_profile == 'Conservative' else 'protective puts'}
-        """,
-        "buy": f"""
-        Based on current technicals and fundamentals:
-        - Current price: ${current_price:.2f}
-        - Target price: ${current_price * 1.12:.2f} (12% upside)
-        - Stop loss: ${current_price * 0.92:.2f} (8% downside)
-        - Risk-reward ratio: 1:{np.random.uniform(1.5,3.0):.1f}
-        Recommendation: {'Strong buy' if rsi < 40 and macd > 0 else 'Buy' if rsi < 50 else 'Accumulate on dips'}
-        """,
-        "sell": f"""
-        Analysis suggests:
-        - Current price: ${current_price:.2f}
-        - Target exit: ${current_price * 0.95:.2f}
-        - Potential downside: {np.random.uniform(5,15):.1f}%
-        - Technical indicators: {'bearish crossover' if macd < 0 else 'overbought conditions'}
-        Recommendation: {'Sell now' if rsi > 70 and macd < 0 else 'Set trailing stop' if rsi > 60 else 'Hold for now'}
-        """,
-        "outlook": f"""
-        12-month fundamental outlook:
-        - Projected EPS growth: {np.random.randint(5,25)}%
-        - P/E expansion potential: {np.random.randint(0,15)}%
-        - Sector outlook: {'positive' if np.random.random() > 0.5 else 'neutral'}
-        - Analyst consensus: {'Buy' if np.random.random() > 0.3 else 'Hold'}
-        Price target range: ${current_price * 0.9:.2f} - ${current_price * 1.25:.2f}
-        """,
-        "analysis": f"""
-        Multi-factor analysis:
-        - Technical score: {np.random.randint(60,90)}/100
-        - Fundamental score: {np.random.randint(50,95)}/100
-        - Sentiment score: {np.random.randint(40,85)}/100
-        - Risk assessment: {'Low' if volatility < 25 else 'Medium' if volatility < 40 else 'High'}
-        Composite rating: {'Strong' if np.random.random() > 0.5 else 'Moderate'}
-        """,
-        "default": f"""
-        Based on comprehensive analysis:
-        - Current technicals: {'Bullish' if macd > 0 else 'Bearish'}
-        - Market sentiment: {'Positive' if np.random.random() > 0.5 else 'Neutral'}
-        - Risk-adjusted return potential: {np.random.uniform(5,15):.1f}%
-        Recommendation: {'Buy' if macd > 0 and rsi < 60 else 'Hold' if rsi < 70 else 'Sell'}
-        Price targets: 
-          Short-term (1M): ${current_price * 1.05:.2f}
-          Medium-term (3M): ${current_price * 1.12:.2f}
-          Long-term (1Y): ${current_price * 1.25:.2f}
-        """
-    }
-    
-    # Better keyword matching
-    if "risk" in query_lower:
-        return responses["risk"]
-    elif "forecast" in query_lower or "predict" in query_lower:
-        return responses["forecast"]
-    elif "portfolio" in query_lower or "allocat" in query_lower:
-        return responses["portfolio"]
-    elif "buy" in query_lower:
-        return responses["buy"]
-    elif "sell" in query_lower:
-        return responses["sell"]
-    elif "outlook" in query_lower or "future" in query_lower:
-        return responses["outlook"]
-    elif "analysis" in query_lower or "evaluat" in query_lower:
-        return responses["analysis"]
-    else:
-        return responses["default"]
+        return detailed_series
+        
+    except Exception as e:
+        st.error(f"Error fetching web series: {str(e)}")
+        return []
 
-def get_macro_data():
-    """Get macroeconomic data for India with realistic values"""
-    # Placeholder - in real implementation, use API
-    return {
-        'inflation': 4.5,
-        'interest_rate': 6.5,
-        'unemployment': 7.2,
-        'gdp_growth': 6.8,
-        'consumer_sentiment': 68.4,
-        'manufacturing_pmi': 55.7,
-        'source': 'RBI / MOSPI',
-        'last_updated': datetime.now().strftime('%Y-%m-%d')
-    }
-
-def get_institutional_activity(ticker):
-    """Get institutional activity data (placeholder)"""
-    # Placeholder - in real implementation, use API
-    dates = pd.date_range(end=datetime.today(), periods=12, freq='M')
-    return pd.DataFrame({
-        'Date': dates,
-        'Shares Held': np.random.randint(1000000, 5000000, 12),
-        '% Change': np.random.uniform(-5, 5, 12),
-        'Number of Institutions': np.random.randint(100, 500, 12)
-    })
-
-def plot_attention_weights(attention):
-    """Plot TFT attention weights"""
-    fig, ax = plt.subplots(figsize=(10, 6))
-    cax = ax.matshow(attention, cmap='viridis')
-    fig.colorbar(cax)
-    ax.set_title("TFT Attention Weights")
-    ax.set_xlabel("Encoder Time Steps")
-    ax.set_ylabel("Decoder Time Steps")
-    return fig
-
-def plot_shap_values(shap_values, features):
-    """Plot SHAP values for feature importance"""
-    fig, ax = plt.subplots(figsize=(10, 6))
-    shap.summary_plot(shap_values, features, plot_type="bar", show=False)
-    plt.title("Feature Importance (SHAP Values)")
-    plt.tight_layout()
-    return fig
-
-def render_metrics(data, ticker, start_date, end_date):
-    """Render key metrics for a stock"""
-    if len(data) > 1 and 'Close' in data.columns:
-        current_price = float(data['Close'].iloc[-1])
-        prev_price = float(data['Close'].iloc[-2]) if len(data) >= 2 else current_price
-        volume = float(data['Volume'].iloc[-1]) if 'Volume' in data.columns else 0.0
-        daily_change = ((current_price - prev_price) / prev_price * 100) if prev_price != 0 else 0.0
-        volatility = float(calculate_volatility(data))
-        annual_return = float(calculate_annual_return(data, start_date, end_date) * 100)  # Convert to percentage
-
-        col1, col2, col3, col4 = st.columns(4)
-        col1.markdown(f'''
-            <div class="metric-card">
-                <b>Current Price</b><br>${current_price:.2f}
-            </div>''', unsafe_allow_html=True)
-        col2.markdown(f'''
-            <div class="metric-card">
-                <b>Daily Change</b><br>{daily_change:.2f}%
-            </div>''', unsafe_allow_html=True)
-        col3.markdown(f'''
-            <div class="metric-card">
-                <b>Annual Volatility</b><br>{volatility:.2f}%
-            </div>''', unsafe_allow_html=True)
-        col4.markdown(f'''
-            <div class="metric-card">
-                <b>Annual Return</b><br>{annual_return:.2f}%
-            </div>''', unsafe_allow_html=True)
-    else:
-        st.warning("Insufficient data to calculate metrics")
-
-# Initialize real-time monitor
-rt_monitor = RealTimeMonitor()
-
-# ------------------ UI STYLES ------------------
-# ------------------ UI STYLES ------------------
-CUSTOM_CSS = """
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
+@st.cache_data
+def load_data(api_key):
+    """Load and cache movie data with progress tracking"""
+    # Show loading progress
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    status_text.text("Loading movie data... 0%")
     
-    :root {
-        --primary: #1a2a6c;
-        --secondary: #0a5f38;
-        --accent: #00c853;
-        --accent2: #00b8d4;
-        --dark: #0a0f1f;
-        --darker: #050916;
-        --light: #f8f9fa;
-        --success: #00c853;
-        --danger: #ff5252;
-        --warning: #ffab00;
-        --info: #2962ff;
-        --card-bg: rgba(255, 255, 255, 0.9);
-        --card-border: rgba(0, 0, 0, 0.1);
-        --vibrant-blue: rgba(70, 130, 180, 0.8);
-        --vibrant-green: rgba(50, 205, 50, 0.8);
-        --vibrant-orange: rgba(255, 140, 0, 0.8);
-        --vibrant-red: rgba(220, 20, 60, 0.8);
-        --vibrant-pink: rgba(255, 20, 147, 0.8);
-        --vibrant-cyan: rgba(0, 255, 255, 0.8);
-        --vibrant-teal: rgba(0, 150, 136, 0.8);
-    }
+    # Fetch popular movies by year (2000-2025) - increased count
+    years = list(range(2000, 2026))
+    movies_list = fetch_popular_movies_by_year(years, api_key, movies_per_year=50)
+    total_movies = len(movies_list)
     
-    * {
-        font-family: 'Montserrat', sans-serif;
-    }
-    
-    body {
-        background: linear-gradient(135deg, var(--darker), var(--dark));
-        background-size: 400% 400%;
-        animation: gradientBG 15s ease infinite;
-        color: var(--light) !important;
-    }
-    
-    @keyframes gradientBG {
-        0% { background-position: 0% 50% }
-        50% { background-position: 100% 50% }
-        100% { background-position: 0% 50% }
-    }
-    
-    .header { 
-        font-size: 3rem; 
-        font-weight: 800; 
-        background: linear-gradient(90deg, var(--accent), var(--accent2));
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        text-align: center;
-        margin-bottom: 20px;
-        text-shadow: 0 0 20px rgba(0, 200, 83, 0.3);
-        letter-spacing: 1px;
-        animation: glow 1.5s ease-in-out infinite alternate;
-    }
-    
-    .subheader {
-        font-size: 1.8rem;
-        font-weight: 700;
-        background: linear-gradient(90deg, var(--accent), var(--accent2));
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        border-bottom: 3px solid var(--accent);
-        padding-bottom: 10px;
-        margin-top: 20px;
-        margin-bottom: 25px;
-    }
-    
-    .metric-card {
-        background: var(--vibrant-teal);
-        border-radius: 15px;
-        padding: 20px;
-        margin-bottom: 20px;
-        border: 1px solid var(--card-border);
-        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
-        transition: all 0.4s ease;
-        backdrop-filter: blur(10px);
-        position: relative;
-        overflow: hidden;
-        color: white;
-        z-index: 1;
-    }
-    
-    .metric-card:hover {
-        transform: translateY(-10px);
-        box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
-        border: 1px solid var(--accent);
-    }
-    
-    .metric-card::before {
-        content: '';
-        position: absolute;
-        top: -2px;
-        left: -2px;
-        right: -2px;
-        bottom: -2px;
-        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
-        z-index: -1;
-        filter: blur(5px);
-        animation: glowing 3s ease-in-out infinite alternate;
-        background-size: 400% 400%;
-    }
-    
-    @keyframes glowing {
-        0% { background-position: 0% 50%; opacity: 0.5; }
-        100% { background-position: 100% 50%; opacity: 0.8; }
-    }
-    
-    .stButton>button {
-        background: linear-gradient(135deg, var(--primary), var(--secondary)) !important;
-        color: white !important;
-        border-radius: 30px !important;
-        font-weight: 600 !important;
-        padding: 10px 25px !important;
-        border: none !important;
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-        transition: all 0.3s ease;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        position: relative;
-        overflow: hidden;
-    }
-    
-    .stButton>button::before {
-        content: '';
-        position: absolute;
-        top: -2px;
-        left: -2px;
-        right: -2px;
-        bottom: -2px;
-        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
-        z-index: -1;
-        filter: blur(5px);
-        animation: glowing 3s ease-in-out infinite alternate;
-        background-size: 400% 400%;
-    }
-    
-    .stButton>button:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 8px 20px rgba(0, 200, 83, 0.4);
-    }
-    
-    .news-item {
-        padding: 20px;
-        margin-bottom: 20px;
-        border-radius: 12px;
-        font-size: 1rem;
-        font-weight: 500;
-        background: var(--vibrant-green);
-        border: 1px solid var(--card-border);
-        transition: all 0.3s ease;
-        backdrop-filter: blur(10px);
-        animation: fadeIn 0.6s ease-out;
-        color: black;
-        position: relative;
-        overflow: hidden;
-        z-index: 1;
-    }
-    
-    .news-item::before {
-        content: '';
-        position: absolute;
-        top: -2px;
-        left: -2px;
-        right: -2px;
-        bottom: -2px;
-        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
-        z-index: -1;
-        filter: blur(5px);
-        animation: glowing 3s ease-in-out infinite alternate;
-        background-size: 400% 400%;
-    }
-    
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    
-    .news-item:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 12px 25px rgba(0, 0, 0, 0.2);
-    }
-    
-    .positive {
-        border-left: 6px solid var(--success);
-        background: linear-gradient(135deg, rgba(76, 175, 80, 0.3), var(--vibrant-green));
-    }
-    
-    .negative {
-        border-left: 6px solid var(--danger);
-        background: linear-gradient(135deg, rgba(244, 67, 54, 0.3), var(--vibrant-green));
-    }
-    
-    .neutral {
-        border-left: 6px solid var(--info);
-        background: linear-gradient(135deg, rgba(41, 98, 255, 0.3), var(--vibrant-green));
-    }
-    
-    .news-item a {
-        color: #1a2a6c !important;
-        font-weight: bold;
-        text-decoration: none;
-        transition: all 0.3s ease;
-    }
-    
-    .news-item a:hover {
-        color: #0a5f38 !important;
-        text-decoration: underline;
-    }
-    
-    .feature-card {
-        background: var(--vibrant-teal);
-        border-radius: 15px;
-        padding: 25px;
-        margin: 20px 0;
-        border: 1px solid var(--card-border);
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-        transition: all 0.4s ease;
-        backdrop-filter: blur(10px);
-        animation: cardAppear 0.8s ease-out;
-        color: white;
-        position: relative;
-        overflow: hidden;
-        z-index: 1;
-    }
-    
-    .feature-card::before {
-        content: '';
-        position: absolute;
-        top: -2px;
-        left: -2px;
-        right: -2px;
-        bottom: -2px;
-        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
-        z-index: -1;
-        filter: blur(5px);
-        animation: glowing 3s ease-in-out infinite alternate;
-        background-size: 400% 400%;
-    }
-    
-    @keyframes cardAppear {
-        0% { opacity: 0; transform: scale(0.95); }
-        100% { opacity: 1; transform: scale(1); }
-    }
-    
-    .feature-card:hover {
-        transform: translateY(-10px) scale(1.02);
-        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
-        border: 1px solid var(--accent);
-    }
-    
-    .feature-card h3 {
-        color: white;
-        font-size: 1.8rem;
-        font-weight: 700;
-        margin-bottom: 15px;
-        border-bottom: 2px solid rgba(255, 255, 255, 0.3);
-        padding-bottom: 10px;
-    }
-    
-    .feature-card h4 {
-        color: white;
-        font-size: 1.5rem;
-        font-weight: 600;
-        margin-top: 20px;
-        margin-bottom: 15px;
-    }
-    
-    .feature-card ul {
-        padding-left: 20px;
-        margin-bottom: 15px;
-    }
-    
-    .feature-card li {
-        margin-bottom: 10px;
-        position: relative;
-        padding-left: 20px;
-        color: white;
-    }
-    
-    .feature-card li::before {
-        content: '•';
-        color: white;
-        position: absolute;
-        left: 0;
-        font-size: 1.5rem;
-    }
-    
-    .gauge {
-        text-align: center;
-        padding: 20px;
-        border-radius: 15px;
-        background: linear-gradient(90deg, var(--danger) 0%, var(--warning) 50%, var(--success) 100%);
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-        margin: 20px 0;
-        animation: pulse 2s infinite;
-        position: relative;
-        overflow: hidden;
-        z-index: 1;
-    }
-    
-    .gauge::before {
-        content: '';
-        position: absolute;
-        top: -2px;
-        left: -2px;
-        right: -2px;
-        bottom: -2px;
-        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
-        z-index: -1;
-        filter: blur(5px);
-        animation: glowing 3s ease-in-out infinite alternate;
-        background-size: 400% 400%;
-    }
-    
-    @keyframes pulse {
-        0% { box-shadow: 0 0 0 0 rgba(0, 200, 83, 0.4); }
-        70% { box-shadow: 0 0 0 15px rgba(0, 200, 83, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(0, 200, 83, 0); }
-    }
-    
-    .gauge-value {
-        font-size: 2.5rem;
-        font-weight: 800;
-        color: var(--accent);
-        text-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
-        margin: 10px 0;
-    }
-    
-    .stTabs [role="tablist"] {
-        background: rgba(19, 28, 58, 0.8) !important;
-        backdrop-filter: blur(10px);
-        border-radius: 15px;
-        padding: 10px;
-        margin-bottom: 30px;
-        border: 1px solid var(--card-border);
-        position: relative;
-        overflow: hidden;
-        z-index: 1;
-    }
-    
-    .stTabs [role="tablist"]::before {
-        content: '';
-        position: absolute;
-        top: -2px;
-        left: -2px;
-        right: -2px;
-        bottom: -2px;
-        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
-        z-index: -1;
-        filter: blur(5px);
-        animation: glowing 3s ease-in-out infinite alternate;
-        background-size: 400% 400%;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, var(--primary), var(--secondary)) !important;
-        color: white !important;
-        font-weight: 600;
-        border-radius: 12px !important;
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-    }
-    
-    .stTabs [role="tab"] {
-        color: var(--light) !important;
-        padding: 10px 20px !important;
-        border-radius: 12px !important;
-        transition: all 0.3s ease;
-    }
-    
-    .stTabs [role="tab"]:hover {
-        background: rgba(0, 200, 83, 0.1) !important;
-    }
-    
-    .ai-response {
-        background: linear-gradient(135deg, var(--vibrant-teal), var(--vibrant-cyan));
-        padding: 25px;
-        border-radius: 15px;
-        margin-top: 20px;
-        border-left: 4px solid var(--accent);
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
-        backdrop-filter: blur(10px);
-        animation: fadeIn 0.8s ease-out;
-        position: relative;
-        overflow: hidden;
-        z-index: 1;
-        color: white;
-    }
-    
-    .ai-response::before {
-        content: '';
-        position: absolute;
-        top: -2px;
-        left: -2px;
-        right: -2px;
-        bottom: -2px;
-        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
-        z-index: -1;
-        filter: blur(5px);
-        animation: glowing 3s ease-in-out infinite alternate;
-        background-size: 400% 400%;
-    }
-    
-    .strategy-card {
-        background: var(--vibrant-teal);
-        border-radius: 15px;
-        padding: 20px;
-        margin: 15px 0;
-        cursor: pointer;
-        transition: all 0.4s ease;
-        border: 1px solid var(--card-border);
-        backdrop-filter: blur(10px);
-        position: relative;
-        overflow: hidden;
-        z-index: 1;
-        color: var(--accent);
-    }
-    
-    .strategy-card::before {
-        content: '';
-        position: absolute;
-        top: -2px;
-        left: -2px;
-        right: -2px;
-        bottom: -2px;
-        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
-        z-index: -1;
-        filter: blur(5px);
-        animation: glowing 3s ease-in-out infinite alternate;
-        background-size: 400% 400%;
-    }
-    
-    .strategy-card:hover {
-        transform: scale(1.03);
-        box-shadow: 0 12px 25px rgba(0, 0, 0, 0.4);
-        border: 1px solid var(--accent);
-    }
-    
-    .strategy-card h4 {
-        color: var(--accent);
-        font-size: 1.5rem;
-        margin-bottom: 15px;
-    }
-    
-    .macro-metric {
-        background: var(--vibrant-teal);
-        border-radius: 15px;
-        padding: 20px;
-        margin: 15px;
-        text-align: center;
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-        backdrop-filter: blur(10px);
-        border: 1px solid var(--card-border);
-        transition: all 0.3s ease;
-        position: relative;
-        overflow: hidden;
-        z-index: 1;
-        color: white;
-    }
-    
-    .macro-metric::before {
-        content: '';
-        position: absolute;
-        top: -2px;
-        left: -2px;
-        right: -2px;
-        bottom: -2px;
-        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
-        z-index: -1;
-        filter: blur(5px);
-        animation: glowing 3s ease-in-out infinite alternate;
-        background-size: 400% 400%;
-    }
-    
-    .macro-metric:hover {
-        transform: translateY(-8px);
-        box-shadow: 0 12px 25px rgba(0, 200, 83, 0.2);
-    }
-    
-    .macro-metric h5 {
-        color: white;
-        margin-bottom: 15px;
-        font-size: 1.2rem;
-        font-weight: 600;
-    }
-    
-    .options-payoff {
-        background: linear-gradient(135deg, var(--vibrant-teal), var(--vibrant-orange));
-        border-radius: 15px;
-        padding: 25px;
-        margin: 20px 0;
-        border: 1px solid var(--card-border);
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
-        backdrop-filter: blur(10px);
-        position: relative;
-        overflow: hidden;
-        z-index: 1;
-    }
-    
-    .options-payoff::before {
-        content: '';
-        position: absolute;
-        top: -2px;
-        left: -2px;
-        right: -2px;
-        bottom: -2px;
-        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
-        z-index: -1;
-        filter: blur(5px);
-        animation: glowing 3s ease-in-out infinite alternate;
-        background-size: 400% 400%;
-    }
-    
-    .stAlert {
-        border-radius: 15px !important;
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3) !important;
-        backdrop-filter: blur(10px) !important;
-        border: 1px solid var(--card-border) !important;
-        position: relative;
-        overflow: hidden;
-        z-index: 1;
-    }
-    
-    .stAlert::before {
-        content: '';
-        position: absolute;
-        top: -2px;
-        left: -2px;
-        right: -2px;
-        bottom: -2px;
-        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
-        z-index: -1;
-        filter: blur(5px);
-        animation: glowing 3s ease-in-out infinite alternate;
-        background-size: 400% 400%;
-    }
-    
-    .stSpinner > div {
-        background: linear-gradient(90deg, var(--accent), var(--accent2)) !important;
-    }
-    
-    .pulse {
-        animation: pulse 2s infinite;
-    }
-    
-    .glow-text {
-        text-shadow: 0 0 10px var(--accent), 0 0 20px var(--accent);
-        animation: glow 1.5s ease-in-out infinite alternate;
-    }
-    
-    @keyframes glow {
-        from { text-shadow: 0 0 5px var(--accent), 0 0 10px var(--accent); }
-        to { text-shadow: 0 0 15px var(--accent), 0 0 30px var(--accent); }
-    }
-    
-    /* Attention heatmap styling */
-    .attention-heatmap {
-        border-radius: 15px;
-        padding: 20px;
-        background: var(--vibrant-teal);
-        margin: 20px 0;
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-    }
-    
-    .shap-plot {
-        border-radius: 15px;
-        padding: 20px;
-        background: var(--vibrant-teal);
-        margin: 20px 0;
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-    }
-</style>
-"""
-
-# ------------------ MAIN APP ------------------
-def main():
-    # Apply custom CSS
-    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
-    
-    # Header
-    st.markdown('<h1 class="header">🚀 QUANTUM STOCK ANALYTICS</h1>', unsafe_allow_html=True)
-    st.markdown("""
-    <div style="text-align:center; margin-bottom:30px;">
-        <h3 class="glow-text">AI-Powered Financial Intelligence Platform</h3>
-    </div>
-    """, unsafe_allow_html=True)
-    st.write(f"<div style='text-align:center; margin-bottom:30px;'>Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>", unsafe_allow_html=True)
-
-    # Sidebar configuration
-    st.sidebar.header("⚙️ Configuration")
-    default_tickers = [
-        "NTPC.NS", "VMM.NS", "SAGILITY.NS", "TATAMOTORS.NS",
-        "TCS.NS", "SBIN.NS", "KALYANKJIL.NS", "SWANENERGY.NS", "PRAJIND.NS",
-        "RELIANCE.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS", "HINDUNILVR.NS",
-        "BAJFINANCE.NS", "LT.NS", "AXISBANK.NS", "ADANIENT.NS", "BHARTIARTL.NS",
-        "HCLTECH.NS", "KOTAKBANK.NS", "ITC.NS", "ASIANPAINT.NS", "MARUTI.NS",
-        "TITAN.NS", "SUNPHARMA.NS"
+    # Add movies for all requested actors/actresses
+    actors_list = [
+        "Shah Rukh Khan", "Salman Khan", "Aamir Khan", "Akshay Kumar", "Hrithik Roshan",
+        "Ranbir Kapoor", "Ranveer Singh", "Vicky Kaushal", "Shahid Kapoor", "Ayushmann Khurrana",
+        "Tiger Shroff", "Varun Dhawan", "Sidharth Malhotra", "Kartik Aaryan", "Rajkummar Rao",
+        "Pankaj Tripathi", "Nawazuddin Siddiqui", "Manoj Bajpayee", "Vikrant Massey", "Sunny Deol",
+        "Bobby Deol", "Arjun Kapoor", "Aditya Roy Kapur", "Emraan Hashmi", "Abhishek Bachchan",
+        "Farhan Akhtar", "John Abraham", "Sanjay Dutt", "Ajay Devgn", "Saif Ali Khan", "Prabhas",
+        "Deepika Padukone", "Alia Bhatt", "Katrina Kaif", "Kareena Kapoor Khan", "Priyanka Chopra Jonas",
+        "Kiara Advani", "Anushka Sharma", "Taapsee Pannu", "Janhvi Kapoor", "Sara Ali Khan",
+        "Kriti Sanon", "Bhumi Pednekar", "Shraddha Kapoor", "Parineeti Chopra", "Yami Gautam",
+        "Radhika Apte", "Mrunal Thakur", "Disha Patani", "Nushrratt Bharuccha", "Pooja Hegde",
+        "Sanya Malhotra", "Huma Qureshi", "Rani Mukerji", "Vidya Balan", "Sonam Kapoor",
+        "Nora Fatehi", "Tabu", "Kajol", "Aishwarya Rai Bachchan", "Triptii Dimri"
     ]
-
-    ticker = st.sidebar.selectbox("📊 Select Stock", default_tickers, index=0)
-    start_date = st.sidebar.date_input("📅 Start Date", datetime.now() - timedelta(days=365))
-    end_date = st.sidebar.date_input("📅 End Date", datetime.now())
-    forecast_days = st.sidebar.slider("🔮 Forecast Days", 30, 365, 90)
-    risk_tolerance = st.sidebar.slider("⚠️ Risk Tolerance (1=Low, 10=High)", 1, 10, 5)
-    portfolio_size = st.sidebar.number_input("💰 Portfolio Size ($)", 10000, 1000000, 50000)
-    portfolio_tickers = st.sidebar.multiselect("📊 Select Portfolio Stocks", default_tickers, default=default_tickers[:5])
     
-    # Market sentiment gauge
-    st.sidebar.markdown("### 📈 Market Sentiment")
-    sentiment_value = st.sidebar.slider("Bull/Bear Indicator", 0, 100, 65)
-    st.sidebar.markdown(f"""
-        <div class="gauge">
-            <div class="gauge-value">{sentiment_value}/100</div>
-            <small>{'Bullish' if sentiment_value > 60 else 'Bearish' if sentiment_value < 40 else 'Neutral'} Market</small>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # Alert system
-    st.sidebar.markdown("### 🔔 Custom Alerts")
-    current_price = yf.Ticker(ticker).history(period="1d")['Close'].iloc[-1] if yf.Ticker(ticker).history(period="1d") is not None else 100
-    price_alert = st.sidebar.number_input("Price Alert Threshold", value=current_price*1.1)
-    if st.sidebar.button("Set Price Alert"):
-        st.sidebar.success(f"Alert set for {ticker} at ${price_alert:.2f}")
-    
-    # Prediction alerts
-    st.sidebar.markdown("### 🔮 Prediction Alerts")
-    alert_threshold = st.sidebar.number_input("Alert if predicted return exceeds (%)", 
-                                             min_value=0.0, max_value=50.0, value=10.0, step=0.5)
-    
-    # User profile
-    st.sidebar.markdown("### 👤 User Profile")
-    user_risk_profile = st.sidebar.select_slider("Your Risk Tolerance", options=["Conservative", "Moderate", "Aggressive"], value="Moderate")
-    user_investment_goal = st.sidebar.selectbox("Primary Goal", ["Capital Growth", "Income", "Preservation"], index=0)
-
-    # Advanced options
-    st.sidebar.markdown("### ⚙️ Advanced Options")
-    tune_hyperparams = st.sidebar.checkbox("Tune Hyperparameters", value=False)
-    enable_ensemble = st.sidebar.checkbox("Enable Ensemble Forecasting", value=True)
-
-    # Fetch stock data
-    with st.spinner('Fetching market data...'):
-        data = get_stock_data(ticker, start_date, end_date)
-
-    # Create tabs
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
-        "🏠 Home", "📈 Market Data", "🔮 Forecasting", "📰 Sentiment", 
-        "💼 Portfolio", "🤖 AI Assistant", "🧪 Strategy", "🚀 Real-Time"
-    ])
-
-    # Home Tab
-    with tab1:
-        st.markdown('<div class="subheader">🚀 Welcome to Quantum Stock Analytics</div>', unsafe_allow_html=True)
+    # Add actor movies
+    for i, actor in enumerate(actors_list):
+        actor_movies = fetch_movies_by_actor(actor, api_key)
+        movies_list.extend(actor_movies)
         
-        # Project Introduction
+        # Update progress
+        progress = (i + 1) / len(actors_list) * 0.3
+        progress_bar.progress(progress)
+        status_text.text(f"Loading actor movies... {int(progress*100)}%")
+    
+    # Add web series
+    web_series = fetch_popular_web_series(api_key, num_series=30)
+    movies_list.extend([{
+        'id': s['id'],
+        'title': s['title'],
+        'release_date': s['release_date'],
+        'poster_path': s['poster_path'],
+        'is_bollywood': False,
+        'is_web_series': True,
+        'details': s
+    } for s in web_series])
+    
+    # Fetch details for each movie with progress
+    detailed_movies = []
+    for i, movie in enumerate(movies_list):
+        # For web series, we already have details
+        if movie.get('is_web_series', False):
+            detailed_movies.append(movie['details'])
+        else:
+            details = fetch_movie_details(movie['id'], api_key)
+            if details:
+                # Add Bollywood flag to details
+                details['is_bollywood'] = movie.get('is_bollywood', False)
+                details['is_web_series'] = False
+                detailed_movies.append(details)
+        
+        # Update progress every 5 movies
+        if i % 5 == 0:
+            progress = (i + 1) / len(movies_list) * 0.7 + 0.3
+            progress_bar.progress(progress)
+            status_text.text(f"Loading movie data... {int(progress*100)}%")
+    
+    # Create DataFrame
+    movies_df = pd.DataFrame(detailed_movies)
+    
+    # Remove duplicates
+    movies_df = movies_df.drop_duplicates(subset=['id'])
+    
+    # Load ratings data
+    ratings_df = pd.read_csv('ratings.csv')
+    
+    # Precompute TF-IDF and similarity
+    tfidf = TfidfVectorizer(stop_words='english')
+    overviews = movies_df['overview'].fillna('').astype(str)
+    tfidf_matrix = tfidf.fit_transform(overviews)
+    cosine_sim = cosine_similarity(tfidf_matrix, tfidf_matrix)
+    indices = pd.Series(movies_df.index, index=movies_df['title']).drop_duplicates()
+    
+    # Generate embeddings
+    genres = movies_df['genres'].fillna('').astype(str)
+    embeddings = load_model().encode(genres.tolist(), show_progress_bar=False)
+    dim = embeddings.shape[1]
+    index = faiss.IndexFlatL2(dim)
+    index.add(np.array(embeddings))
+    
+    # Add weighted score
+    v = movies_df['vote_count'].fillna(0)
+    R = movies_df['vote_average'].fillna(0)
+    C = movies_df['vote_average'].mean()
+    m = movies_df['vote_count'].quantile(0.60)
+    movies_df['weighted_score'] = ((v / (v + m)) * R) + ((m / (v + m)) * C)
+    
+    # Create genre set
+    genre_set = set()
+    for genres in movies_df['genres']:
+        if isinstance(genres, str):
+            for genre in genres.split(', '):
+                genre_set.add(genre.strip())
+    
+    # Add Bollywood as a genre
+    genre_set.add("Bollywood")
+    genre_set.add("Web Series")
+    
+    # Remove unwanted genres
+    unwanted_genres = {
+        'Action & Adventure', 'Bollywood', 'Drama', 'kids', 'Music', 'News', 'Reality', 
+        'Western', 'Sci-Fi & Fantasy', 'TV Movie', 'Soap', 'Web Series', 'War', 'Talk'
+    }
+    genre_set = genre_set - unwanted_genres
+    
+    # Complete progress
+    progress_bar.progress(1.0)
+    status_text.text("Data loaded successfully!")
+    time.sleep(1)
+    progress_bar.empty()
+    status_text.empty()
+    
+    return movies_df, ratings_df, {
+        'tfidf_matrix': tfidf_matrix,
+        'cosine_sim': cosine_sim,
+        'indices': indices,
+        'embeddings': embeddings,
+        'faiss_index': index,
+        'genre_set': sorted(genre_set)
+    }
+
+# =========================================
+# MODULE 4: USER MANAGEMENT
+# =========================================
+USER_PROFILES_DIR = "user_profiles"
+USERS_FILE = "users.csv"
+LOGIN_ACTIVITY_FILE = "login_activity.csv"
+
+def save_user_profile(username):
+    """Save user profile to disk"""
+    try:
+        os.makedirs(USER_PROFILES_DIR, exist_ok=True)
+        profile_path = os.path.join(USER_PROFILES_DIR, f"{username}_profile.pkl")
+        profile_data = {
+            'user_vector': st.session_state.user_vector,
+            'user_preferences': st.session_state.user_preferences,
+            'user_preferences_set': st.session_state.user_preferences_set
+        }
+        with open(profile_path, 'wb') as f:
+            pickle.dump(profile_data, f)
+    except Exception as e:
+        st.error(f"Error saving user profile: {str(e)}")
+
+def load_user_profile(username):
+    """Load user profile from disk"""
+    try:
+        profile_path = os.path.join(USER_PROFILES_DIR, f"{username}_profile.pkl")
+        if os.path.exists(profile_path):
+            with open(profile_path, 'rb') as f:
+                profile_data = pickle.load(f)
+            
+            # Ensure all preference keys exist
+            DEFAULT_USER_PREFERENCES = {
+                'liked_movies': [],
+                'disliked_movies': [],
+                'preferred_genres': [],
+                'watchlist': [],
+                'mood_preferences': [],
+                'preferred_era': "Any",
+                'preferred_actors': [],
+                'preferred_directors': []
+            }
+            
+            loaded_prefs = profile_data.get('user_preferences', {})
+            for key in DEFAULT_USER_PREFERENCES:
+                if key not in loaded_prefs:
+                    loaded_prefs[key] = DEFAULT_USER_PREFERENCES[key]
+                    
+            st.session_state.user_vector = profile_data.get('user_vector', None)
+            st.session_state.user_preferences = loaded_prefs
+            st.session_state.user_preferences_set = profile_data.get('user_preferences_set', False)
+            return True
+    except Exception as e:
+        st.error(f"Error loading user profile: {str(e)}")
+    return False
+
+def save_login_activity(username):
+    """Save login activity to log file"""
+    try:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if os.path.exists(LOGIN_ACTIVITY_FILE):
+            logs = pd.read_csv(LOGIN_ACTIVITY_FILE)
+        else:
+            logs = pd.DataFrame(columns=["Username", "Timestamp"])
+
+        new_entry = pd.DataFrame({"Username": [username], "Timestamp": [now]})
+        logs = pd.concat([logs, new_entry], ignore_index=True)
+        logs.to_csv(LOGIN_ACTIVITY_FILE, index=False)
+    except Exception as e:
+        st.error(f"Error saving login activity: {str(e)}")
+
+def validate_user(username, password):
+    """Validate user credentials"""
+    try:
+        if not os.path.exists(USERS_FILE):
+            return False
+        df = pd.read_csv(USERS_FILE)
+        return ((df['username'] == username) & (df['password'] == password)).any()
+    except Exception as e:
+        st.error(f"Error validating user: {str(e)}")
+        return False
+
+def register_user(username, password):
+    """Register a new user"""
+    try:
+        if os.path.exists(USERS_FILE):
+            df = pd.read_csv(USERS_FILE)
+            if username in df['username'].values:
+                return False
+        else:
+            df = pd.DataFrame(columns=["username", "password"])
+
+        new_user = pd.DataFrame({"username": [username], "password": [password]})
+        df = pd.concat([df, new_user], ignore_index=True)
+        df.to_csv(USERS_FILE, index=False)
+        return True
+    except Exception as e:
+        st.error(f"Error registering user: {str(e)}")
+        return False
+
+def initialize_user_profile(username):
+    """Initialize a new user profile"""
+    try:
+        if not load_user_profile(username):
+            # Create new profile
+            st.session_state.user_vector = np.zeros(384)
+            st.session_state.user_preferences = {
+                'liked_movies': [],
+                'disliked_movies': [],
+                'preferred_genres': [],
+                'watchlist': [],
+                'mood_preferences': [],
+                'preferred_era': "Any",
+                'preferred_actors': [],
+                'preferred_directors': []
+            }
+            st.session_state.user_preferences_set = False
+            save_user_profile(username)
+    except Exception as e:
+        st.error(f"Error initializing user profile: {str(e)}")
+
+# =========================================
+# MODULE 5: RECOMMENDATION ENGINE
+# =========================================
+@st.cache_resource
+def train_dl_model():
+    """Train and cache the deep learning model"""
+    try:
+        from surprise import Dataset, Reader, SVD
+        from surprise.model_selection import train_test_split
+
+        ratings_df = st.session_state.cached_data[1] if st.session_state.cached_data else pd.read_csv('ratings.csv')
+        
+        reader = Reader(rating_scale=(0.5, 5))
+        data = Dataset.load_from_df(ratings_df[['userId', 'movieId', 'rating']], reader)
+        trainset, _ = train_test_split(data, test_size=0.2, random_state=42)
+
+        model = SVD(n_factors=50, n_epochs=10, lr_all=0.01, reg_all=0.02)
+        model.fit(trainset)
+        return model
+    except Exception as e:
+        st.error(f"Error training DL model: {str(e)}")
+        return None
+
+def get_user_preferred_genres():
+    """Get user's preferred genres based on liked movies"""
+    try:
+        liked_movies = st.session_state.user_preferences.get('liked_movies', [])
+        all_genres = []
+        
+        for movie_title in liked_movies:
+            movie_row = movies_df[movies_df['title'] == movie_title]
+            if not movie_row.empty:
+                genres = movie_row['genres'].iloc[0].split(', ') if isinstance(movie_row['genres'].iloc[0], str) else []
+                all_genres.extend(genres)
+        
+        # Count genres and get top 3
+        if all_genres:
+            counter = Counter(all_genres)
+            return [genre for genre, _ in counter.most_common(3)]
+    except Exception as e:
+        st.error(f"Error getting preferred genres: {str(e)}")
+    return []
+
+def advanced_hybrid_recommendation(title=None, user_id=None, top_n=10, selected_genres=None, 
+                                  sort_by="latest", actor_director=None, mood=None):
+    """Generate hybrid recommendations combining content and collaborative filtering"""
+    try:
+        movies_df, _, precomputed = st.session_state.cached_data
+        
+        # If no title provided, use user preferences or default to popular movies
+        if title is None:
+            # If user has preferences, find similar to user vector
+            if st.session_state.user_vector is not None and not np.all(st.session_state.user_vector == 0):
+                # Search for similar movies to user vector
+                query_vector = st.session_state.user_vector.reshape(1, -1)
+                distances, indices = precomputed['faiss_index'].search(query_vector, top_n*3)
+                
+                # Get movie details
+                results = movies_df.iloc[indices[0]]
+                
+                # Calculate similarity scores (1 - normalized distance)
+                max_distance = distances[0].max()
+                results['similarity'] = 1 - (distances[0] / max_distance)
+                
+                # Apply genre filter
+                if selected_genres:
+                    results = results[results['genres'].apply(
+                        lambda g: any(genre in g.split(', ') for genre in selected_genres)
+                    )]
+                
+                # Sort by release date
+                if sort_by == "latest":
+                    results = results.sort_values("release_date", ascending=False)
+                elif sort_by == "oldest":
+                    results = results.sort_values("release_date", ascending=True)
+                    
+                return results.head(top_n)
+            else:
+                # Default to popular movies if no preferences
+                results = movies_df.sort_values('weighted_score', ascending=False)
+                
+                # Apply genre filter
+                if selected_genres:
+                    results = results[results['genres'].apply(
+                        lambda g: any(genre in g.split(', ') for genre in selected_genres)
+                    )]
+                
+                # Sort by release date
+                if sort_by == "latest":
+                    results = results.sort_values("release_date", ascending=False)
+                elif sort_by == "oldest":
+                    results = results.sort_values("release_date", ascending=True)
+                    
+                return results.head(top_n)
+        
+        # Validate movie title exists
+        if title not in precomputed['indices']:
+            return pd.DataFrame()
+        
+        idx = precomputed['indices'][title]
+        sim_scores = list(enumerate(precomputed['cosine_sim'][idx]))
+        
+        # Collaborative filtering predictions
+        if user_id:
+            predictions = []
+            for i, row in movies_df.iterrows():
+                pred = dl_model.predict(user_id, row['id'])
+                predictions.append((i, pred.est))
+        else:
+            predictions = [(i, 0) for i in range(len(movies_df))]
+        
+        # Combine scores
+        combined = []
+        max_content = max(score for _, score in sim_scores)
+        max_collab = max(score for _, score in predictions) if user_id else 1
+        
+        for (i, content_score), (_, collab_score) in zip(sim_scores, predictions):
+            if user_id:
+                combined_score = (0.6 * (content_score / max_content)) + (0.4 * (collab_score / max_collab))
+            else:
+                combined_score = content_score / max_content
+            combined.append((i, combined_score))
+        
+        # Sort and get top recommendations
+        combined.sort(key=lambda x: x[1], reverse=True)
+        top_indices = [i[0] for i in combined[1:top_n*2]]  # Get extra for filtering
+        results = movies_df.iloc[top_indices]
+        
+        # Apply genre filter
+        if selected_genres:
+            results = results[results['genres'].apply(
+                lambda g: any(genre in g.split(', ') for genre in selected_genres)
+            )]
+        
+        # Apply actor/director filter
+        if actor_director:
+            # Search for actor or director name
+            results = results[
+                (results['director'].str.contains(actor_director, case=False)) |
+                (results['actors'].apply(lambda x: any(actor_director.lower() in actor.lower() for actor in x) if isinstance(x, list) else False))
+            ]
+        
+        # Apply mood filter
+        if mood:
+            mood_mapping = {
+                'happy': ['Comedy', 'Animation', 'Family', 'Music'],
+                'exciting': ['Action', 'Adventure', 'Thriller', 'Science Fiction'],
+                'romantic': ['Romance', 'Drama'],
+                'thrilling': ['Horror', 'Mystery', 'Thriller'],
+                'thoughtful': ['Drama', 'History', 'Documentary'],
+                'calm': ['Drama', 'Romance', 'Family']
+            }
+            mood_genres = mood_mapping.get(mood, [])
+            if mood_genres:
+                results = results[results['genres'].apply(
+                    lambda g: any(genre in g.split(', ') for genre in mood_genres)
+                )]
+        
+        # Sort by release date
+        if sort_by == "latest":
+            results = results.sort_values("release_date", ascending=False)
+        elif sort_by == "oldest":
+            results = results.sort_values("release_date", ascending=True)
+            
+        return results.head(top_n)
+    except Exception as e:
+        st.error(f"Error generating recommendations: {str(e)}")
+        return pd.DataFrame()
+
+def get_personalized_recommendations(top_n=5):
+    """Get personalized recommendations based on user preferences"""
+    try:
+        movies_df, _, precomputed = st.session_state.cached_data
+        
+        # If user has liked movies, use them to generate recommendations
+        if st.session_state.user_preferences.get('liked_movies', []):
+            # Create a synthetic "favorite movie" based on user preferences
+            user_vector = st.session_state.user_vector
+            query_vector = user_vector.reshape(1, -1)
+            distances, indices = precomputed['faiss_index'].search(query_vector, top_n*2)
+            results = movies_df.iloc[indices[0]]
+            
+            # Calculate similarity scores (1 - normalized distance)
+            max_distance = distances[0].max()
+            results['similarity'] = 1 - (distances[0] / max_distance)
+            results = results.sort_values('similarity', ascending=False)
+        else:
+            # Use preferred genres and other preferences
+            preferred_genres = st.session_state.user_preferences.get('preferred_genres', [])
+            preferred_era = st.session_state.user_preferences.get('preferred_era', "Any")
+            preferred_actors = st.session_state.user_preferences.get('preferred_actors', [])
+            preferred_directors = st.session_state.user_preferences.get('preferred_directors', [])
+            
+            # Start with all movies
+            results = movies_df.copy()
+            
+            # Filter by preferred genres
+            if preferred_genres:
+                results = results[results['genres'].apply(
+                    lambda g: any(genre in g.split(', ') for genre in preferred_genres)
+                )]
+            
+            # Filter by preferred era
+            if preferred_era != "Any":
+                if preferred_era == "Recent (2010-Now)":
+                    results = results[results['release_date'] >= "2010-01-01"]
+                elif preferred_era == "Classic (Pre-2000)":
+                    results = results[results['release_date'] < "2000-01-01"]
+            
+            # Filter by preferred actors
+            if preferred_actors:
+                actor_filter = False
+                for actor in preferred_actors:
+                    actor_filter = actor_filter | results['actors'].apply(
+                        lambda x: actor.lower() in [a.lower() for a in x] if isinstance(x, list) else False
+                    )
+                results = results[actor_filter]
+            
+            # Filter by preferred directors
+            if preferred_directors:
+                director_filter = False
+                for director in preferred_directors:
+                    director_filter = director_filter | results['director'].str.contains(director, case=False)
+                results = results[director_filter]
+            
+            # Sort by popularity
+            results = results.sort_values('popularity', ascending=False)
+        
+        return results.head(top_n)
+    except Exception as e:
+        st.error(f"Error getting personalized recommendations: {str(e)}")
+        return pd.DataFrame()
+
+# =========================================
+# MODULE 6: USER PREFERENCES MANAGEMENT
+# =========================================
+def update_user_preference(movie_id, action):
+    """Update user preferences based on like/dislike actions"""
+    try:
+        movies_df, _, _ = st.session_state.cached_data
+        movie_title = movies_df[movies_df['id'] == movie_id]['title'].values[0]
+        
+        if action == 'like':
+            if movie_title in st.session_state.user_preferences['disliked_movies']:
+                st.session_state.user_preferences['disliked_movies'].remove(movie_title)
+            if movie_title not in st.session_state.user_preferences['liked_movies']:
+                st.session_state.user_preferences['liked_movies'].append(movie_title)
+                
+            # Update user vector - more significant impact for likes
+            movie_idx = movies_df.index[movies_df['id'] == movie_id].tolist()[0]
+            movie_embedding = st.session_state.cached_data[2]['embeddings'][movie_idx]
+            
+            if st.session_state.user_vector is None:
+                st.session_state.user_vector = movie_embedding
+            else:
+                st.session_state.user_vector = st.session_state.user_vector * 0.5 + movie_embedding * 0.5
+                
+        elif action == 'dislike':
+            if movie_title in st.session_state.user_preferences['liked_movies']:
+                st.session_state.user_preferences['liked_movies'].remove(movie_title)
+            if movie_title not in st.session_state.user_preferences['disliked_movies']:
+                st.session_state.user_preferences['disliked_movies'].append(movie_title)
+            
+            # Update user vector - less significant impact for dislikes
+            movie_idx = movies_df.index[movies_df['id'] == movie_id].tolist()[0]
+            movie_embedding = st.session_state.cached_data[2]['embeddings'][movie_idx]
+            
+            if st.session_state.user_vector is not None:
+                st.session_state.user_vector = st.session_state.user_vector * 0.9 - movie_embedding * 0.1
+        
+        # Save updated profile
+        save_user_profile(st.session_state.username)
+        log_event(st.session_state.username, movie_title, action)
+        
+        # Force UI refresh to show updated recommendations
+        st.rerun()
+    except Exception as e:
+        st.error(f"Error updating preference: {str(e)}")
+
+def update_watchlist(movie_id, action):
+    """Add or remove movie from user's watchlist"""
+    try:
+        movies_df, _, _ = st.session_state.cached_data
+        movie_title = movies_df[movies_df['id'] == movie_id]['title'].values[0]
+        
+        if action == 'add':
+            if movie_title not in st.session_state.user_preferences['watchlist']:
+                st.session_state.user_preferences['watchlist'].append(movie_title)
+                st.success(f"✅ Added {movie_title} to your watchlist!")
+                
+                # Calculate CO2 savings (2.5kg per movie)
+                st.session_state.co2_savings += 2.5
+                log_event(st.session_state.username, movie_title, "add_to_watchlist")
+        elif action == 'remove':
+            if movie_title in st.session_state.user_preferences['watchlist']:
+                st.session_state.user_preferences['watchlist'].remove(movie_title)
+                st.success(f"✅ Removed {movie_title} from your watchlist!")
+                log_event(st.session_state.username, movie_title, "remove_from_watchlist")
+        
+        # Save updated profile
+        save_user_profile(st.session_state.username)
+    except Exception as e:
+        st.error(f"Error updating watchlist: {str(e)}")
+
+def save_user_taste_preferences():
+    """Save user's taste preferences from the form"""
+    try:
+        st.session_state.user_preferences_set = True
+        save_user_profile(st.session_state.username)
+        st.success("Preferences saved successfully! 🎉")
+        st.session_state.preferences_expanded = False
+        st.rerun()
+    except Exception as e:
+        st.error(f"Error saving preferences: {str(e)}")
+
+# =========================================
+# MODULE 7: UI COMPONENTS
+# =========================================
+def movie_card(movie, show_feedback=True, context="default", index=0):
+    """Display movie information in a styled card"""
+    try:
+        with st.container():
+            # Add type tags
+            tags_html = ""
+            if movie.get('is_bollywood', False):
+                tags_html += "<span class='tag tag-bollywood'>Bollywood</span>"
+            if movie.get('is_web_series', False):
+                tags_html += "<span class='tag tag-webseries'>Web Series</span>"
+                if 'seasons' in movie:
+                    tags_html += f"<span class='tag tag-seasons'>{movie['seasons']} Seasons</span>"
+            
+            st.markdown(f"<div class='movie-card section-animation'>", unsafe_allow_html=True)
+            
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                # Use poster_path directly from movie data
+                display_poster(movie.get('poster_path'), class_name="poster-container")
+            
+            with col2:
+                st.subheader(movie['title'])
+                st.markdown(tags_html, unsafe_allow_html=True)
+                
+                # Use director from movie data
+                director = movie.get('director', 'Unknown')
+                st.markdown(f"🎬 **Director:** {director}")
+                
+                # Safely handle actors field
+                actors = movie.get('actors', [])
+                if isinstance(actors, list) and len(actors) > 0:
+                    st.markdown(f"👥 **Cast:** {', '.join(actors)}")
+                    
+                st.caption(f"⭐ {movie['vote_average']} | 🗳️ {movie['vote_count']} votes | 📅 {movie['release_date']}")
+                
+                # Display genres as tags
+                genres = movie['genres'].split(', ') if isinstance(movie['genres'], str) else []
+                genre_tags = " ".join([f"<span class='tag tag-genre'>{genre}</span>" for genre in genres])
+                st.markdown(f"<div style='margin: 10px 0;'>{genre_tags}</div>", unsafe_allow_html=True)
+                
+                # For web series, show seasons/episodes
+                if movie.get('is_web_series', False):
+                    st.markdown(f"📺 **Seasons:** {movie.get('seasons', 'N/A')} | **Episodes:** {movie.get('episodes', 'N/A')}")
+                
+                # Display similarity bar if available
+                if 'similarity' in movie:
+                    similarity = movie['similarity']
+                    st.markdown(f"<div class='similarity-bar' style='width: {similarity*100}%'></div>", unsafe_allow_html=True)
+                    st.caption(f"Match: {similarity*100:.1f}%")
+                
+                # Use budget from movie data
+                budget = movie.get('budget', 0)
+                st.write(f"💰 Budget: {format_currency(budget)}")
+                
+                # Use overview from movie data
+                overview = movie.get('overview', 'No overview available.')
+                st.write(overview[:200] + "...")
+                
+                if show_feedback and st.session_state.logged_in:
+                    c1, c2, c3 = st.columns(3)
+                    unique_key_like = f"{context}_like_{movie['id']}_{index}_{uuid.uuid4().hex[:6]}"
+                    unique_key_dislike = f"{context}_dislike_{movie['id']}_{index}_{uuid.uuid4().hex[:6]}"
+                    unique_key_watchlist = f"{context}_watchlist_{movie['id']}_{index}_{uuid.uuid4().hex[:6]}"
+                    
+                    with c1:
+                        if st.button("👍 Like", key=unique_key_like, use_container_width=True):
+                            update_user_preference(movie['id'], 'like')
+                    with c2:
+                        if st.button("👎 Dislike", key=unique_key_dislike, use_container_width=True):
+                            update_user_preference(movie['id'], 'dislike')
+                    with c3:
+                        # Safely access watchlist with default
+                        watchlist = st.session_state.user_preferences.get('watchlist', [])
+                        if movie['title'] in watchlist:
+                            if st.button("❌ Remove Watchlist", key=unique_key_watchlist, use_container_width=True):
+                                update_watchlist(movie['id'], 'remove')
+                        else:
+                            if st.button("➕ Add to Watchlist", key=unique_key_watchlist, use_container_width=True):
+                                update_watchlist(movie['id'], 'add')
+
+            st.markdown("</div>", unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"Error rendering movie card: {str(e)}")
+
+def render_login_signup():
+    """Render the login/signup interface"""
+    st.markdown('<h1 class="neon-title" style="text-align: center;">🎬 Movie Recommender Pro</h1>', unsafe_allow_html=True)
+    st.markdown("---")
+    
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        st.markdown("### 🔐 Login to Your Account")
+        login_username = st.text_input("Username", key="login_user")
+        login_password = st.text_input("Password", type="password", key="login_pass")
+        
+        if st.button("Login", key="login_btn", use_container_width=True):
+            if login_username == "Vic" and login_password == "Vik":
+                st.success("✅ Admin Logged In")
+                st.session_state.logged_in = True
+                st.session_state.username = login_username
+                save_login_activity(login_username)
+                initialize_user_profile(login_username)
+                st.rerun()
+            elif validate_user(login_username, login_password):
+                st.success(f"✅ Welcome {login_username}")
+                st.session_state.logged_in = True
+                st.session_state.username = login_username
+                save_login_activity(login_username)
+                initialize_user_profile(login_username)
+                st.rerun()
+            else:
+                st.error("❌ Invalid Credentials")
+    
+    with col2:
+        st.markdown("### 🎉 Create New Account")
+        reg_username = st.text_input("Username", key="reg_user")
+        reg_password = st.text_input("Password", type="password", key="reg_pass")
+        reg_confirm = st.text_input("Confirm Password", type="password", key="reg_confirm")
+        
+        if st.button("Register", key="reg_btn", use_container_width=True):
+            if reg_password != reg_confirm:
+                st.error("Passwords do not match")
+            elif register_user(reg_username, reg_password):
+                st.success("🎉 Signup successful. You are now logged in.")
+                st.session_state.logged_in = True
+                st.session_state.username = reg_username
+                save_login_activity(reg_username)
+                initialize_user_profile(reg_username)
+                st.rerun()
+            else:
+                st.warning("⚠️ Username already exists. Try logging in.")
+
+def render_taste_preferences_form():
+    """Render the taste preferences form"""
+    with st.expander("🎬 Tell Us Your Movie Preferences", expanded=True):
+        st.write("Help us recommend movies you'll love by telling us about your tastes:")
+        
+        # Get available data
+        movies_df, _, precomputed = st.session_state.cached_data
+        
+        # Favorite genres
+        st.subheader("Favorite Genres")
+        selected_genres = st.multiselect(
+            "Select your favorite genres (select up to 5)", 
+            precomputed['genre_set'],
+            default=st.session_state.user_preferences.get('preferred_genres', []),
+            max_selections=5
+        )
+        
+        # Preferred era
+        st.subheader("Preferred Movie Era")
+        era_options = ["Any", "Recent (2010-Now)", "Classic (Pre-2000)"]
+        selected_era = st.selectbox(
+            "Which era of movies do you prefer?",
+            era_options,
+            index=era_options.index(st.session_state.user_preferences.get('preferred_era', "Any"))
+        )
+        
+        # Favorite actors
+        st.subheader("Favorite Actors/Actresses")
+        all_actors = set()
+        for actors_list in movies_df['actors']:
+            if isinstance(actors_list, list):
+                for actor in actors_list:
+                    all_actors.add(actor)
+        selected_actors = st.multiselect(
+            "Select your favorite actors/actresses (select up to 5)",
+            sorted(all_actors),
+            default=st.session_state.user_preferences.get('preferred_actors', []),
+            max_selections=5
+        )
+        
+        # Favorite directors
+        st.subheader("Favorite Directors")
+        all_directors = set(movies_df['director'].dropna().unique())
+        selected_directors = st.multiselect(
+            "Select your favorite directors (select up to 3)",
+            sorted(all_directors),
+            default=st.session_state.user_preferences.get('preferred_directors', []),
+            max_selections=3
+        )
+        
+        # Save button
+        if st.button("Save Preferences", key="save_prefs_btn", use_container_width=True):
+            st.session_state.user_preferences['preferred_genres'] = selected_genres
+            st.session_state.user_preferences['preferred_era'] = selected_era
+            st.session_state.user_preferences['preferred_actors'] = selected_actors
+            st.session_state.user_preferences['preferred_directors'] = selected_directors
+            st.session_state.user_preferences_set = True
+            save_user_profile(st.session_state.username)
+            st.success("Preferences saved successfully! 🎉")
+            st.rerun()
+
+# =========================================
+# MODULE 8: MAIN APPLICATION LOGIC
+# =========================================
+def render_home_tab():
+    """Render the home tab content"""
+    # Get data
+    movies_df, _, precomputed = st.session_state.cached_data
+    
+    # Show taste preferences form if not set
+    if not st.session_state.user_preferences_set:
+        render_taste_preferences_form()
+    
+    # Project description
+    with st.expander("🌟 About Movie Recommender Pro", expanded=True):
         st.markdown("""
-        <div class="feature-card">
-            <h3>📊 Project Overview</h3>
-            <p style="font-size:1.1em;">Quantum Stock Analytics is a cutting-edge financial platform combining real-time market data, 
-            AI-powered forecasting, sentiment analysis, and portfolio optimization to deliver actionable investment insights.</p>
+        <div style="padding: 20px; border-radius: 15px; background: linear-gradient(135deg, rgba(255, 107, 107, 0.2), rgba(78, 205, 196, 0.2));">
+            <h3 style="color: #ffbe0b; text-align: center;">Discover Your Next Favorite Movie!</h3>
+            <p style="font-size: 1.1rem;">Movie Recommender Pro uses advanced AI algorithms to find perfect movie matches based on your unique preferences. 
+            Our hybrid recommendation system combines multiple techniques to deliver personalized suggestions.</p>
         </div>
         """, unsafe_allow_html=True)
         
-        # Key Features Section
-        st.markdown('<div class="subheader">✨ Key Features</div>', unsafe_allow_html=True)
+        # Feature showcase
+        st.subheader("✨ Key Features")
         
+        # Feature cards in columns
         col1, col2, col3 = st.columns(3)
+        
         with col1:
             st.markdown("""
-            <div class="feature-card">
-                <h4>📈 Real-Time Market Intelligence</h4>
-                <ul>
-                    <li>Live price tracking with candlestick charts</li>
-                    <li>Technical indicators (RSI, MACD, Moving Averages)</li>
-                    <li>Options analysis & payoff visualization</li>
-                    <li>Institutional activity tracking</li>
-                </ul>
+            <div class="feature-card section-animation">
+                <h4>🔍 Smart Search</h4>
+                <p>Find movies by title, genre, or keywords</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("""
+            <div class="feature-card section-animation">
+                <h4>🤖 AI Recommendations</h4>
+                <p>Deep learning models personalize suggestions</p>
             </div>
             """, unsafe_allow_html=True)
             
         with col2:
             st.markdown("""
-            <div class="feature-card">
-                <h4>🔮 Hybrid Forecasting</h4>
-                <ul>
-                    <li>Prophet time-series forecasting</li>
-                    <li>TFT neural network predictions</li>
-                    <li>Confidence interval projections</li>
-                    <li>Risk assessment metrics</li>
-                </ul>
+            <div class="feature-card section-animation">
+                <h4>💡 Hybrid System</h4>
+                <p>Combines content-based and collaborative filtering</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("""
+            <div class="feature-card section-animation">
+                <h4>📈 Visual Analytics</h4>
+                <p>Explore movie trends and genre distributions</p>
             </div>
             """, unsafe_allow_html=True)
             
         with col3:
             st.markdown("""
-            <div class="feature-card">
-                <h4>💹 Portfolio Optimization</h4>
-                <ul>
-                    <li>Modern Portfolio Theory (MPT) implementation</li>
-                    <li>Risk-adjusted allocation strategies</li>
-                    <li>Monte Carlo simulations</li>
-                    <li>Macroeconomic factor integration</li>
-                </ul>
+            <div class="feature-card section-animation">
+                <h4>👤 Personal Profile</h4>
+                <p>Track your liked/disliked movies</p>
             </div>
             """, unsafe_allow_html=True)
-        
-        # Unique Features Section
-        st.markdown('<div class="subheader">💎 Advanced Features</div>', unsafe_allow_html=True)
-        
-        col4, col5 = st.columns([2, 1])
-        with col4:
-            st.markdown("""
-            <div class="feature-card">
-                <h4>🧠 Sentiment-Driven Analysis</h4>
-                <p>Our proprietary sentiment engine combines:</p>
-                <ul>
-                    <li>FinBERT financial sentiment analysis model</li>
-                    <li>Real-time news aggregation from global sources</li>
-                    <li>Earnings surprise predictions</li>
-                    <li>Sentiment-weighted risk assessment</li>
-                </ul>
-            </div>
             
-            <div class="feature-card">
-                <h4>⚡ AI Investment Assistant</h4>
-                <ul>
-                    <li>Natural language query processing</li>
-                    <li>Personalized investment recommendations</li>
-                    <li>Strategy backtesting engine</li>
-                    <li>Real-time market insights</li>
-                </ul>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col5:
             st.markdown("""
-            <div class="feature-card" style="text-align:center;">
-                <h3 style="color:white;">Tech Stack</h3>
-                <div style="font-size:3rem;">🤖</div>
-                <p><strong>AI-Powered Analytics</strong></p>
-                <ul style="text-align:left;">
-                    <li>Prophet Forecasting</li>
-                    <li>TFT Neural Networks</li>
-                    <li>FinBERT NLP</li>
-                    <li>CVXPY Optimization</li>
-                </ul>
-                <p><strong>Real-Time Data</strong></p>
-                <ul style="text-align:left;">
-                    <li>Yahoo Finance API</li>
-                    <li>NewsAPI Integration</li>
-                    <li>Streamlit Live Updates</li>
-                </ul>
+            <div class="feature-card section-animation">
+                <h4>🌱 Sustainability Focus</h4>
+                <p>Track your environmental impact</p>
             </div>
             """, unsafe_allow_html=True)
-        
-        # Usage Instructions
-        st.markdown('<div class="subheader">🚦 Getting Started</div>', unsafe_allow_html=True)
-        st.markdown("""
-        <div class="feature-card">
-            <ol style="font-size:1.1em;">
-                <li><b style="color:#00c853;">Select a stock</b> from the sidebar dropdown</li>
-                <li><b style="color:#00c853;">Adjust date ranges</b> and forecast periods</li>
-                <li><b style="color:#00c853;">Explore different tabs</b> for various analyses</li>
-                <li><b style="color:#00c853;">Build portfolios</b> with multiple stocks</li>
-                <li><b style="color:#00c853;">Ask questions</b> to the AI Assistant</li>
-                <li><b style="color:#00c853;">Test strategies</b> with historical data</li>
-            </ol>
-            <div style="text-align:center; margin-top:20px; padding:10px; background:rgba(0,200,83,0.1); border-radius:10px;">
-                <span style="font-size:2em;">👉</span>
-                <span style="color:white; font-weight:bold; font-size:1.3em;">Use the sidebar to get started!</span>
-                <span style="font-size:2em;">👈</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    
+    # Real-time data section
+    st.subheader("🔥 Real-Time Trending")
+    realtime_data = fetch_realtime_data(st.secrets["TMDB_API_KEY"])
+    
+    if realtime_data['trending']:
+        st.markdown("### 🚀 Trending Today")
+        cols = st.columns(5)
+        for idx, movie in enumerate(realtime_data['trending'][:5]):
+            with cols[idx % 5]:
+                display_poster(movie.get('poster_path'), class_name="poster-container", width=150)
+                st.caption(f"**{movie['title']}**")
+                st.caption(f"⭐ {movie.get('vote_average', 'N/A')}")
+    
+    if realtime_data['new_releases']:
+        st.markdown("### 🆕 New Releases")
+        cols = st.columns(5)
+        for idx, movie in enumerate(realtime_data['new_releases'][:5]):
+            with cols[idx % 5]:
+                display_poster(movie.get('poster_path'), class_name="poster-container", width=150)
+                st.caption(f"**{movie['title']}**")
+                st.caption(f"📅 {movie.get('release_date', 'N/A')}")
+    
+    # Bollywood section
+    st.markdown("### 🎬 Bollywood Spotlight")
+    bollywood_movies = movies_df[movies_df['is_bollywood'] == True].sort_values('weighted_score', ascending=False).head(10)
+    
+    if not bollywood_movies.empty:
+        cols = st.columns(5)
+        for idx, (_, row) in enumerate(bollywood_movies.head(5).iterrows()):
+            with cols[idx % 5]:
+                display_poster(row.get('poster_path'), class_name="poster-container", width=150)
+                st.caption(f"**{row['title']}**")
+                st.progress(row['weighted_score'] / 10, text=f"⭐ {row['vote_average']}")
+    else:
+        st.info("No Bollywood movies available")
+    
+    # Personalized Recommendations
+    st.markdown("### 🎯 Personalized Recommendations For You")
+    if st.session_state.user_preferences_set:
+        personalized = get_personalized_recommendations(top_n=3)
+        if not personalized.empty:
+            for _, row in personalized.iterrows():
+                movie_card(row, context="home")
+        else:
+            st.info("No personalized recommendations found. Try expanding your preferences.")
+    else:
+        st.info("Complete your taste preferences to get personalized recommendations")
+    
+    # Admin Panel
+    if st.session_state.username == "Vic":
+        with st.expander("🛡️ Admin Panel - User Login Activity", expanded=False):
+            st.markdown("### 👨‍💼 User Login Logs")
+            if os.path.exists(LOGIN_ACTIVITY_FILE):
+                logs = pd.read_csv(LOGIN_ACTIVITY_FILE)
+                st.dataframe(logs.sort_values("Timestamp", ascending=False).head(10))
+            else:
+                st.info("No login activity recorded yet.")
+            if st.button("🔄 Refresh Logs"):
+                st.rerun()
 
-    # Market Data Tab
+def render_search_tab():
+    """Render the search tab content"""
+    movies_df, _, _ = st.session_state.cached_data
+    st.subheader("🔍 Search Movies")
+    search_term = st.text_input("Search by title, genre, or keyword")
+    
+    if search_term:
+        try:
+            # Search by title
+            title_results = movies_df[movies_df['title'].str.contains(search_term, case=False)]
+            
+            # Search by genre
+            genre_results = movies_df[movies_df['genres'].str.contains(search_term, case=False)]
+            
+            # Search by keyword in overview
+            keyword_results = movies_df[movies_df['overview'].str.contains(search_term, case=False)]
+            
+            # Combine results
+            results = pd.concat([title_results, genre_results, keyword_results]).drop_duplicates(subset=["id"])
+
+            
+            if not results.empty:
+                st.write(f"🔍 Found {len(results)} matches")
+                for _, row in results.head(10).iterrows():
+                    movie_card(row, show_feedback=True, context="search")
+            else:
+                st.warning("No movies found matching your search")
+        except Exception as e:
+            st.error(f"Error during search: {str(e)}")
+
+def render_popular_tab():
+    """Render the popular movies tab"""
+    movies_df, _, _ = st.session_state.cached_data
+    st.subheader("📂 Browse Movie Database")
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        sort_options = [
+            "Title", "Rating", "Popularity", "Release Date (Newest)", 
+            "Release Date (Oldest)", "Budget (High to Low)", "Budget (Low to High)"
+        ]
+        sort_by = st.selectbox("Sort by", sort_options, key="popular_sort")
+    with col2:
+        num_movies = st.slider("Number per page", 10, 100, 20, key="num_movies_slider")
+    
+    # Pagination
+    page_number = st.number_input("Page", min_value=1, value=1, step=1)
+    start_idx = (page_number - 1) * num_movies
+    end_idx = start_idx + num_movies
+    
+    sorted_df = movies_df.copy()
+    if sort_by == "Rating":
+        sorted_df = sorted_df.sort_values("vote_average", ascending=False)
+    elif sort_by == "Popularity":
+        sorted_df = sorted_df.sort_values("popularity", ascending=False)
+    elif sort_by == "Release Date (Newest)":
+        sorted_df = sorted_df.sort_values("release_date", ascending=False)
+    elif sort_by == "Release Date (Oldest)":
+        sorted_df = sorted_df.sort_values("release_date", ascending=True)
+    elif sort_by == "Budget (High to Low)":
+        sorted_df = sorted_df.sort_values("budget", ascending=False)
+    elif sort_by == "Budget (Low to High)":
+        sorted_df = sorted_df.sort_values("budget", ascending=True)
+    else:
+        sorted_df = sorted_df.sort_values("title")
+    
+    # Display the slice
+    st.write(f"📖 Showing {start_idx+1} - {min(end_idx, len(sorted_df))} of {len(sorted_df)} movies")
+    for _, row in sorted_df.iloc[start_idx:end_idx].iterrows():
+        movie_card(row, context="browse")
+
+def render_genre_tab():
+    """Render the genre filter tab"""
+    movies_df, _, precomputed = st.session_state.cached_data
+    st.subheader("🎯 Discover by Genre")
+    # Get available genres
+    available_genres = precomputed['genre_set']
+    valid_defaults = ["Action", "Comedy"]
+    
+    selected_genres = st.multiselect(
+        "Select genres", 
+        available_genres, 
+        default=valid_defaults, 
+        key="genre_filter"
+    )
+    
+    if selected_genres:
+        try:
+            # Use exact match filtering
+            filtered = movies_df[movies_df['genres'].apply(
+                lambda g: any(genre in g.split(', ') for genre in selected_genres)
+            )]
+            
+            # Validation for empty results
+            if len(filtered) == 0:
+                st.warning("No movies found with the selected genres")
+                return
+                
+            st.write(f"🎬 Found {len(filtered)} movies")
+            
+            # Pagination
+            num_per_page = st.slider("Movies per page", 5, 50, 10, key="genre_per_page")
+            page = st.number_input("Page", min_value=1, max_value=len(filtered)//num_per_page+1, value=1)
+            start = (page-1) * num_per_page
+            end = start + num_per_page
+            
+            # Display results
+            for _, row in filtered.iloc[start:end].iterrows():
+                movie_card(row, context="genre")
+        except Exception as e:
+            st.error(f"Error filtering by genre: {str(e)}")
+    else:
+        st.warning("Please select at least one genre")
+
+def render_latest_tab():
+    """Render the latest releases tab"""
+    movies_df, _, precomputed = st.session_state.cached_data
+    st.subheader("🎬 Latest Movie Releases")
+    
+    # Year selector
+    selected_year = st.selectbox("Select Year", list(range(2018, 2026)), index=2024-2018)
+    
+    # Get movies for selected year
+    current_year_movies = movies_df[
+        (movies_df['release_date'].str.startswith(str(selected_year))) | 
+        (movies_df['release_date'].str.contains(f"^{selected_year}-", na=False))
+    ]
+    
+    # Count movies by industry
+    hollywood_count = len(current_year_movies[current_year_movies['is_bollywood'] == False])
+    bollywood_count = len(current_year_movies[current_year_movies['is_bollywood'] == True])
+    
+    st.markdown(f"### 🎉 Movies of {selected_year}")
+    st.write(f"🎥 **Hollywood:** {hollywood_count} movies | 🎬 **Bollywood:** {bollywood_count} movies")
+    
+    if not current_year_movies.empty:
+        # Genre filter
+        selected_genres = st.multiselect("Filter by genres", precomputed['genre_set'], key="latest_genre_filter")
+        
+        if selected_genres:
+            def genre_filter(genres_str):
+                if not isinstance(genres_str, str):
+                    return False
+                genres_list = [g.strip() for g in genres_str.split(',')]
+                return any(genre in genres_list for genre in selected_genres)
+            
+            current_year_movies = current_year_movies[current_year_movies['genres'].apply(genre_filter)]
+        
+        st.write(f"📊 **Filtered:** {len(current_year_movies)} movies")
+        
+        # Sort by release date (newest first)
+        current_year_movies = current_year_movies.sort_values("release_date", ascending=False)
+        
+        # Pagination
+        num_per_page = st.slider("Movies per page", 10, 100, 20, key="latest_per_page")
+        page = st.number_input("Page", min_value=1, max_value=len(current_year_movies)//num_per_page+1, value=1)
+        start = (page-1) * num_per_page
+        end = start + num_per_page
+        
+        # Show movie cards
+        for _, row in current_year_movies.iloc[start:end].iterrows():
+            movie_card(row, context="latest", show_feedback=True)
+    else:
+        st.warning(f"No movies found for {selected_year} with selected genres.")
+
+def render_analytics_tab():
+    """Render the analytics tab"""
+    movies_df, _, _ = st.session_state.cached_data
+    st.subheader("📊 Movie Analytics Dashboard")
+    
+    tab1, tab2, tab3 = st.tabs(["Genre Analysis", "Rating Insights", "Word Cloud"])
+    
+    with tab1:
+        st.subheader("🎭 Genre Distribution")
+        genre_count = defaultdict(int)
+        for g_list in movies_df['genres']:
+            if isinstance(g_list, str):
+                for genre in g_list.split(', '):
+                    clean_genre = genre.strip()
+                    if clean_genre:
+                        genre_count[clean_genre] += 1
+        
+        # Create DataFrame from genre_count
+        genre_df = pd.DataFrame(list(genre_count.items()), columns=['Genre', 'Count'])
+        genre_df = genre_df.sort_values('Count', ascending=False)
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        sns.barplot(x='Count', y='Genre', data=genre_df.head(15), palette="viridis", ax=ax)
+        ax.set_title("Top 15 Movie Genres")
+        st.pyplot(fig)
+
+    
     with tab2:
-        st.markdown('<div class="subheader">Real-Time Market Data</div>', unsafe_allow_html=True)
+        st.subheader("⭐ Rating Insights")
+        fig, ax = plt.subplots(1, 2, figsize=(14, 5))
         
-        if data.empty:
-            st.error("No data available for analysis. Please select a different ticker or date range.")
-        else:
-            # Render metrics
-            render_metrics(data, ticker, start_date, end_date)
-            
-            # Price Movement Chart
-            if len(data) > 1 and 'Close' in data.columns:
-                fig = go.Figure()
-                fig.add_trace(go.Candlestick(
-                    x=data.index,
-                    open=data['Open'],
-                    high=data['High'],
-                    low=data['Low'],
-                    close=data['Close'],
-                    name='Price'
-                ))
-                
-                # Calculate moving averages
-                if len(data) > 20:
-                    data['MA20'] = data['Close'].rolling(window=20).mean()
-                    fig.add_trace(go.Scatter(
-                        x=data.index, y=data['MA20'],
-                        mode='lines', name='20-day MA',
-                        line=dict(color='orange', width=2)
-                    ))
-                if len(data) > 50:
-                    data['MA50'] = data['Close'].rolling(window=50).mean()
-                    fig.add_trace(go.Scatter(
-                        x=data.index, y=data['MA50'],
-                        mode='lines', name='50-day MA',
-                        line=dict(color='purple', width=2)
-                    ))
-                    
-                fig.update_layout(
-                    title=f'{ticker} Price Movement',
-                    xaxis_title='Date',
-                    yaxis_title='Price ($)',
-                    template='plotly_dark',
-                    height=500
-                )
-                st.plotly_chart(fig, use_container_width=True)
-
-                # Technical Indicators
-                st.subheader("Technical Indicators")
-                data = calculate_technical_indicators(data)
-
-                # Create subplots
-                fig_tech = go.Figure()
-                
-                # Price and MACD
-                fig_tech.add_trace(go.Scatter(
-                    x=data.index, y=data['Close'],
-                    mode='lines', name='Close',
-                    line=dict(color='#4F8BF9')
-                ))
-                
-                fig_tech.add_trace(go.Scatter(
-                    x=data.index, y=data['MACD'],
-                    mode='lines', name='MACD',
-                    line=dict(color='#FFA500')
-                ))
-                
-                fig_tech.add_trace(go.Scatter(
-                    x=data.index, y=data['MACD_Signal'],
-                    mode='lines', name='Signal',
-                    line=dict(color='#00FF00')
-                ))
-                
-                # RSI on secondary axis
-                fig_tech.add_trace(go.Scatter(
-                    x=data.index, y=data['RSI'],
-                    mode='lines', name='RSI',
-                    line=dict(color='#FF00FF'),
-                    yaxis='y2'
-                ))
-                
-                fig_tech.update_layout(
-                    title='Technical Indicators',
-                    xaxis_title='Date',
-                    yaxis_title='Price/MACD',
-                    yaxis2=dict(
-                        title='RSI',
-                        overlaying='y',
-                        side='right',
-                        range=[0, 100]
-                    ),
-                    template='plotly_dark',
-                    height=500,
-                    showlegend=True
-                )
-                
-                # Add overbought/oversold lines
-                fig_tech.add_hline(y=70, line_dash="dash", line_color="red", opacity=0.5, yref="y2")
-                fig_tech.add_hline(y=30, line_dash="dash", line_color="green", opacity=0.5, yref="y2")
-                
-                st.plotly_chart(fig_tech, use_container_width=True)
-                
-                # Options Analysis
-                st.subheader("Options Analysis")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown("#### Call Option Payoff")
-                    strike = st.slider("Strike Price", current_price * 0.8, current_price * 1.2, current_price * 1.05)
-                    premium = st.slider("Premium", 0.5, 20.0, 2.5)
-                    contracts = st.slider("Contracts", 1, 100, 1)
-                    
-                    prices, payoff = create_options_payoff(strike, premium, 'call', contracts)
-                    fig_call = go.Figure()
-                    fig_call.add_trace(go.Scatter(x=prices, y=payoff, mode='lines', name='Call Payoff'))
-                    fig_call.update_layout(
-                        title='Call Option Payoff Diagram',
-                        xaxis_title='Stock Price',
-                        yaxis_title='Profit/Loss',
-                        template='plotly_dark'
-                    )
-                    st.plotly_chart(fig_call, use_container_width=True)
-                    
-                with col2:
-                    st.markdown("#### Put Option Payoff")
-                    strike_put = st.slider("Strike Price (Put)", current_price * 0.8, current_price * 1.2, current_price * 0.95)
-                    premium_put = st.slider("Premium (Put)", 0.5, 20.0, 2.0)
-                    
-                    prices, payoff_put = create_options_payoff(strike_put, premium_put, 'put', contracts)
-                    fig_put = go.Figure()
-                    fig_put.add_trace(go.Scatter(x=prices, y=payoff_put, mode='lines', name='Put Payoff'))
-                    fig_put.update_layout(
-                        title='Put Option Payoff Diagram',
-                        xaxis_title='Stock Price',
-                        yaxis_title='Profit/Loss',
-                        template='plotly_dark'
-                    )
-                    st.plotly_chart(fig_put, use_container_width=True)
-                
-                # Institutional Activity
-                st.subheader("Institutional Activity")
-                inst_data = get_institutional_activity(ticker)
-                
-                fig_inst = px.bar(inst_data, x='Date', y='% Change', 
-                                 color='% Change', 
-                                 title='Institutional Position Changes',
-                                 color_continuous_scale='RdYlGn')
-                st.plotly_chart(fig_inst, use_container_width=True)
-                
-                col_inst1, col_inst2 = st.columns(2)
-                with col_inst1:
-                    st.metric("Total Shares Held", f"{inst_data['Shares Held'].iloc[-1]:,}")
-                with col_inst2:
-                    st.metric("Number of Institutions", inst_data['Number of Institutions'].iloc[-1])
-
-    # Forecasting Tab
+        # Rating histogram
+        sns.histplot(movies_df['vote_average'].dropna(), bins=20, kde=True, ax=ax[0], color='skyblue')
+        ax[0].set_title("Vote Average Distribution")
+        ax[0].set_xlabel("Rating")
+        ax[0].set_ylabel("Frequency")
+        
+        # Rating vs. Budget
+        budget_movies = movies_df[movies_df['budget'] > 0]
+        sample_size = min(500, len(budget_movies))
+        budget_sample = budget_movies.sample(sample_size)
+        sns.scatterplot(x='vote_average', y='budget', data=budget_sample, ax=ax[1], alpha=0.6)
+        ax[1].set_title("Rating vs. Budget")
+        ax[1].set_xlabel("Rating")
+        ax[1].set_ylabel("Budget (Millions)")
+        ax[1].set_yscale('log')
+        
+        st.pyplot(fig)
+    
     with tab3:
-        st.markdown('<div class="subheader">Hybrid Prophet-TFT Forecasting</div>', unsafe_allow_html=True)
+        st.subheader("☁️ Overview Word Cloud")
+        text = " ".join(movies_df['overview'].dropna().astype(str))
         
-        if data.empty:
-            st.error("No data available for forecasting. Please select a different ticker or date range.")
+        if text:
+            wordcloud = WordCloud(width=800, height=400, background_color='black').generate(text)
+            fig, ax = plt.subplots(figsize=(12, 8))
+            ax.imshow(wordcloud, interpolation='bilinear')
+            ax.axis('off')
+            st.pyplot(fig)
         else:
-            try:
-                with st.spinner('Running Prophet forecast with technical indicators...'):
-                    prophet_model, prophet_forecast_df = prophet_forecast(data, forecast_days)
-                    
-                    st.subheader("Prophet Forecast")
-                    fig1 = plot_plotly(prophet_model, prophet_forecast_df)
-                    fig1.update_layout(
-                        height=500,
-                        template='plotly_dark',
-                        title=f"{ticker} Price Forecast",
-                        xaxis_title="Date",
-                        yaxis_title="Price"
-                    )
-                    st.plotly_chart(fig1, use_container_width=True)
-                    
-                    st.subheader("Forecast Components")
-                    fig2 = plot_components_plotly(prophet_model, prophet_forecast_df)
-                    st.plotly_chart(fig2, use_container_width=True)
-                    
-                    # Confidence interval
-                    last_forecast = prophet_forecast_df.iloc[-1]
-                    confidence_interval = last_forecast['yhat_upper'] - last_forecast['yhat_lower']
-                    confidence_percent = min(100, max(0, 100 - (confidence_interval / last_forecast['yhat'] * 100)))
-                    
-                    st.metric("Forecast Confidence", f"{confidence_percent:.1f}%")
-                    st.progress(int(confidence_percent))
-                    
-                    # Track performance
-                    prophet_rmse = np.sqrt(mean_squared_error(
-                        data['Close'].iloc[-30:], 
-                        prophet_forecast_df['yhat'].iloc[-30-forecast_days:-forecast_days]
-                    ))
-                    rt_monitor.monitor_performance("Prophet", prophet_rmse)
-                    
-            except Exception as e:
-                st.error(f"Prophet forecasting error: {str(e)}")
-            
-            try:
-                with st.spinner('Running TFT forecast with hyperparameter tuning...'):
-                    tft_results = tft_forecast(data, forecast_days, tune=tune_hyperparams)
-                    
-                    st.subheader("TFT Neural Network Forecast")
-                    fig_tft = go.Figure()
-                    fig_tft.add_trace(go.Scatter(
-                        x=data.index,
-                        y=data['Close'],
-                        mode='lines',
-                        name='Actual Price',
-                        line=dict(color='#4F8BF9')
-                    ))
-                    
-                    last_date = data.index[-1]
-                    forecast_dates = pd.date_range(start=last_date, periods=forecast_days+1)[1:]
-                    
-                    fig_tft.add_trace(go.Scatter(
-                        x=forecast_dates,
-                        y=tft_results['forecast'],
-                        mode='lines',
-                        name='TFT Forecast',
-                        line=dict(color='#00FF00', width=3)
-                    ))
-                    
-                    fig_tft.add_trace(go.Scatter(
-                        x=forecast_dates,
-                        y=tft_results['upper_band'],
-                        mode='lines',
-                        line=dict(width=0),
-                        showlegend=False
-                    ))
-                    
-                    fig_tft.add_trace(go.Scatter(
-                        x=forecast_dates,
-                        y=tft_results['lower_band'],
-                        mode='lines',
-                        fill='tonexty',
-                        fillcolor='rgba(0, 255, 0, 0.2)',
-                        line=dict(width=0),
-                        name='Confidence Band'
-                    ))
-                    
-                    fig_tft.update_layout(
-                        title='TFT Price Forecast with Confidence Bands',
-                        xaxis_title='Date',
-                        yaxis_title='Price',
-                        template='plotly_dark',
-                        height=500
-                    )
-                    st.plotly_chart(fig_tft, use_container_width=True)
-                    
-                    col_tft1, col_tft2 = st.columns(2)
-                    col_tft1.metric("Train RMSE", f"{tft_results['train_rmse']:.2f}")
-                    col_tft2.metric("Test RMSE", f"{tft_results['test_rmse']:.2f}")
-                    
-                    # Track performance
-                    rt_monitor.monitor_performance("TFT", tft_results['train_rmse'])
-                    
-                    # Attention Visualization
-                    if 'attention' in tft_results and tft_results['attention'] is not None:
-                        st.subheader("Attention Weights")
-                        st.markdown('<div class="attention-heatmap">', unsafe_allow_html=True)
-                        fig_attn = plot_attention_weights(tft_results['attention'])
-                        st.pyplot(fig_attn)
-                        st.markdown('</div>', unsafe_allow_html=True)
-                        st.caption("Attention weights show which historical time steps the model focuses on when making predictions")
-                    
-                    # SHAP Explainability
-                    if 'shap_values' in tft_results and 'features' in tft_results:
-                        st.subheader("TFT Feature Importance")
-                        fig_shap = plot_shap_values(tft_results['shap_values'], data[tft_results['features']])
-                        st.pyplot(fig_shap)
-            
-            except Exception as e:
-                st.error(f"TFT forecasting error: {str(e)}")
-            
-            # Ensemble Forecasting
-            if enable_ensemble and not data.empty and 'prophet_forecast_df' in locals() and 'tft_results' in locals():
-                try:
-                    with st.spinner('Combining forecasts with ensemble model...'):
-                        combined_forecast, prophet_weight, tft_weight = ensemble_forecast(
-                            prophet_forecast_df['yhat'].values,
-                            tft_results['forecast'],
-                            data['Close'].values,
-                            forecast_days
-                        )
-                        
-                        st.subheader("Hybrid Ensemble Forecast")
-                        fig_ensemble = go.Figure()
-                        fig_ensemble.add_trace(go.Scatter(
-                            x=data.index,
-                            y=data['Close'],
-                            mode='lines',
-                            name='Actual Price',
-                            line=dict(color='#4F8BF9')
-                        ))
-                        
-                        fig_ensemble.add_trace(go.Scatter(
-                            x=forecast_dates,
-                            y=combined_forecast,
-                            mode='lines',
-                            name='Ensemble Forecast',
-                            line=dict(color='#FF00FF', width=3)
-                        ))
-                        
-                        fig_ensemble.update_layout(
-                            title='Hybrid Prophet-TFT Ensemble Forecast',
-                            xaxis_title='Date',
-                            yaxis_title='Price',
-                            template='plotly_dark',
-                            height=500
-                        )
-                        st.plotly_chart(fig_ensemble, use_container_width=True)
-                        
-                        col_ens1, col_ens2 = st.columns(2)
-                        col_ens1.metric("Prophet Weight", f"{prophet_weight:.2%}")
-                        col_ens2.metric("TFT Weight", f"{tft_weight:.2%}")
-                        
-                        # Check for prediction alerts
-                        predicted_return = (combined_forecast[-1] / data['Close'].iloc[-1] - 1) * 100
-                        if abs(predicted_return) > alert_threshold:
-                            direction = "increase" if predicted_return > 0 else "decrease"
-                            st.warning(f"⚠️ Significant predicted {direction}: {predicted_return:.1f}% over {forecast_days} days")
-                
-                except Exception as e:
-                    st.error(f"Ensemble forecasting error: {str(e)}")
+            st.warning("No overview text available")
 
-    # Sentiment Analysis Tab
-    with tab4:
-        st.markdown('<div class="subheader">Sentiment Analysis</div>', unsafe_allow_html=True)
-        
-        news_items = get_news(ticker)
-
-        if not news_items:
-            st.warning("No recent news found")
-        else:
-            sentiment_model = load_sentiment_model()
-            
-            # Batch processing for efficiency
-            all_texts = []
-            for news in news_items:
-                title = news['title'] or "No title"
-                summary = news['summary'] or ""
-                text = clean_text(f"{title}. {summary}")
-                if text.strip():
-                    all_texts.append(text)
-            
-            # Process in batches
-            sentiments = []
-            for i in range(0, len(all_texts), 8):
-                batch = all_texts[i:i+8]
-                try:
-                    sentiments.extend(sentiment_model(batch))
-                except Exception as e:
-                    logger.error(f"Sentiment error: {str(e)}")
-                    # Add neutral sentiment as fallback
-                    sentiments.extend([{'label': 'NEUTRAL', 'score': 0.5}] * len(batch))
-            
-            # Display results
-            for idx, news in enumerate(news_items):
-                if idx >= len(sentiments):
-                    break
-                    
-                sentiment = sentiments[idx]
-                label = sentiment['label']
-                score = sentiment['score']
-                
-                style = "neutral"
-                if label == "POSITIVE":
-                    style = "positive"
-                elif label == "NEGATIVE":
-                    style = "negative"
-
-                st.markdown(f"""
-                <div class="news-item {style}">
-                    <b>{news['title']}</b><br>
-                    <i>{news.get('date', '')[:10]}</i><br>
-                    <i>Sentiment:</i> {label.capitalize()} ({score:.2f})<br>
-                    <a href="{news['link']}" target="_blank">Read more</a>
-                </div>
-                """, unsafe_allow_html=True)
-                
-            # Overall sentiment gauge
-            positive_count = sum(1 for s in sentiments if s['label'] == 'POSITIVE')
-            sentiment_score = positive_count / len(sentiments) if sentiments else 0.5
-            
-            st.subheader("Overall Sentiment")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Positive News", positive_count)
-            col2.metric("Total News", len(sentiments))
-            col3.metric("Sentiment Score", f"{sentiment_score*100:.1f}%")
-            
-            # Sentiment gauge
-            gauge_value = int(sentiment_score * 100)
-            st.markdown(f"""
-                <div class="gauge" style="margin-top:20px;">
-                    <div class="gauge-value">{gauge_value}/100</div>
-                    <small>Bullish Sentiment</small>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            # Earnings Analysis
-            st.subheader("Earnings Analysis")
+def render_actor_director_tab():
+    """Render the actor/director tab"""
+    movies_df, _, _ = st.session_state.cached_data
+    st.subheader("🎭 Find Movies by Actor or Director")
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        search_name = st.text_input("Enter actor or director name", key="actor_director_search")
+    with col2:
+        num_results = st.slider("Number of results", 5, 50, 10, key="actor_num_slider")
+    
+    if search_name:
+        with st.spinner(f"Searching for movies with {search_name}..."):
             try:
-                earnings_data = get_earnings_data(ticker)
+                # Search for actor in cast or director
+                results = movies_df[
+                    (movies_df['director'].str.contains(search_name, case=False)) |
+                    (movies_df['actors'].apply(lambda x: any(search_name.lower() in actor.lower() for actor in x) if isinstance(x, list) else False))
+                ]
                 
-                if not earnings_data.empty:
-                    fig_earn = go.Figure()
-                    fig_earn.add_trace(go.Bar(
-                        x=earnings_data.index,
-                        y=earnings_data['Surprise (%)'],
-                        name='Earnings Surprise',
-                        marker_color=np.where(earnings_data['Surprise (%)'] > 0, 'green', 'red')
-                    ))
-                    fig_earn.update_layout(
-                        title='Recent Earnings Surprise',
-                        xaxis_title='Date',
-                        yaxis_title='Surprise (%)',
-                        template='plotly_dark'
-                    )
-                    st.plotly_chart(fig_earn, use_container_width=True)
+                if not results.empty:
+                    st.success(f"🎬 Found {len(results)} movies featuring {search_name}")
                     
-                    last_earnings = earnings_data.iloc[-1]
-                    col_earn1, col_earn2, col_earn3 = st.columns(3)
-                    col_earn1.metric("Reported EPS", f"{last_earnings['Reported EPS']:.2f}")
-                    col_earn2.metric("Estimate", f"{last_earnings['EPS Estimate']:.2f}")
-                    col_earn3.metric("Surprise", f"{last_earnings['Surprise (%)']:.2f}%", 
-                                    delta=f"{last_earnings['Surprise (%)']:.2f}%")
+                    # Sort by popularity
+                    results = results.sort_values('popularity', ascending=False)
                     
-                    # Earnings Forecast
-                    st.markdown("#### Next Earnings Forecast")
-                    next_date = earnings_data.index[-1] + pd.DateOffset(months=3)
-                    st.metric("Estimated Date", next_date.strftime("%Y-%m-%d"))
+                    # Pagination
+                    num_per_page = min(num_results, 10)
+                    page = st.number_input("Page", min_value=1, max_value=len(results)//num_per_page+1, value=1, key="actor_page")
+                    start = (page-1) * num_per_page
+                    end = start + num_per_page
                     
-                    col_est1, col_est2 = st.columns(2)
-                    col_est1.metric("Consensus EPS Estimate", f"{last_earnings['EPS Estimate'] * 1.05:.2f}")
-                    col_est2.metric("Predicted Surprise", f"{np.random.uniform(-5, 10):.2f}%")
+                    # Display results
+                    for _, row in results.iloc[start:end].iterrows():
+                        movie_card(row, context="actor", show_feedback=True)
+                else:
+                    st.warning(f"No movies found with {search_name}")
             except Exception as e:
-                st.error(f"Earnings data error: {str(e)}")
-                st.warning("Using simulated earnings data")
-                
-                # Create mock data for 2024-2025
-                dates = pd.date_range(start='2024-01-01', periods=4, freq='Q')
-                earnings_data = pd.DataFrame({
-                    'Earnings Date': dates,
-                    'EPS Estimate': np.random.uniform(0.5, 2.5, 4),
-                    'Reported EPS': np.random.uniform(0.4, 2.6, 4),
-                    'Surprise (%)': np.random.uniform(-15, 15, 4)
-                })
-                earnings_data.set_index('Earnings Date', inplace=True)
-                
-                fig_earn = go.Figure()
-                fig_earn.add_trace(go.Bar(
-                    x=earnings_data.index,
-                    y=earnings_data['Surprise (%)'],
-                    name='Earnings Surprise',
-                    marker_color=np.where(earnings_data['Surprise (%)'] > 0, 'green', 'red')
-                ))
-                fig_earn.update_layout(
-                    title='Recent Earnings Surprise (Simulated)',
-                    xaxis_title='Date',
-                    yaxis_title='Surprise (%)',
-                    template='plotly_dark'
+                st.error(f"Error searching for actor/director: {str(e)}")
+
+def render_hybrid_tab():
+    """Render the hybrid recommendations tab"""
+    st.subheader("💡 Hybrid Recommendations")
+    st.info("Combines content-based filtering with collaborative filtering for personalized results")
+    
+    movies_df, _, precomputed = st.session_state.cached_data
+    
+    # Movie type selection
+    available_genres = precomputed['genre_set']
+    valid_defaults = ["Action", "Comedy"]
+    
+    selected_types = st.multiselect(
+        "Filter by movie types", 
+        available_genres, 
+        default=valid_defaults, 
+        key="hybrid_type_filter"
+    )
+    
+    # Optional movie search
+    movie_search = st.text_input("🎬 Enter a movie name (optional)", key="hybrid_movie_search", placeholder="Type a movie name...")
+    
+    # Actor/Director filter
+    actor_director = st.text_input("👤 Filter by actor or director (optional)", key="hybrid_actor_director")
+    
+    # Mood filter
+    mood_options = ["Happy 😊", "Exciting 🚀", "Romantic 💕", "Thrilling 😱", "Thoughtful 🤔", "Calm 😌"]
+    mood = st.selectbox("😊 Filter by mood (optional)", ["None"] + mood_options, key="hybrid_mood")
+    mood_mapping = {
+        "Happy 😊": "happy",
+        "Exciting 🚀": "exciting",
+        "Romantic 💕": "romantic",
+        "Thrilling 😱": "thrilling",
+        "Thoughtful 🤔": "thoughtful",
+        "Calm 😌": "calm"
+    }
+    mood_value = mood_mapping.get(mood, None)
+    
+    # Sorting options
+    col1, col2 = st.columns(2)
+    with col1:
+        sort_by = st.radio("Prioritize", ["Latest", "Oldest"], horizontal=True, key="hybrid_sort")
+    with col2:
+        top_n = st.slider("🔢 Number of recommendations", 5, 20, 10, key="hybrid_num_slider")
+
+    if st.button("Generate Recommendations", key="hybrid_btn", use_container_width=True):
+        with st.spinner("Analyzing patterns..."):
+            time.sleep(0.5)
+            
+            # Improved user ID generation
+            user_id = abs(hash(st.session_state.username)) % 10000
+            
+            # Determine what to recommend
+            recommendation_basis = ""
+            if movie_search:
+                # User entered a movie
+                movie_title = find_movie_by_title(movie_search, movies_df)
+                if not movie_title:
+                    st.error("Movie not found. Please try another title.")
+                else:
+                    results = advanced_hybrid_recommendation(
+                        movie_title,
+                        user_id,
+                        top_n,
+                        selected_types,
+                        "latest" if sort_by == "Latest" else "oldest",
+                        actor_director,
+                        mood_value
+                    )
+                    
+                    recommendation_basis = f"Because you liked **{movie_title}**"
+            else:
+                # No movie entered - use user preferences or popular movies
+                results = advanced_hybrid_recommendation(
+                    None,
+                    user_id,
+                    top_n,
+                    selected_types,
+                    "latest" if sort_by == "Latest" else "oldest",
+                    actor_director,
+                    mood_value
                 )
-                st.plotly_chart(fig_earn, use_container_width=True)
-
-    # Portfolio Optimization Tab
-    with tab5:
-        st.markdown('<div class="subheader">Portfolio Optimization</div>', unsafe_allow_html=True)
-        portfolio_data = prepare_portfolio_data(portfolio_tickers, start_date, end_date)
-
-        if portfolio_data.empty:
-            st.warning("Insufficient data for portfolio optimization")
-        else:
-            # Calculate daily returns
-            returns = portfolio_data.pct_change().dropna()
-
-            # Optimize portfolio
-            weights = optimize_portfolio(returns, risk_tolerance / 10)
-
-            if weights is None:
-                st.warning("Optimization failed. Using equal weights")
-                weights = np.ones(len(portfolio_data.columns)) / len(portfolio_data.columns)
-
-            # Calculate annualized returns
-            expected_returns = {}
-            actual_returns = {}
+                    
+                if st.session_state.user_preferences.get('liked_movies', []):
+                    # Get top 3 preferred genres
+                    top_genres = get_user_preferred_genres()
+                    if top_genres:
+                        genres_str = ", ".join(top_genres)
+                        recommendation_basis = f"Based on your preferences for **{genres_str}** genres"
+                    else:
+                        recommendation_basis = "Based on your movie preferences"
+                else:
+                    recommendation_basis = "Popular movies you might enjoy"
             
-            for t in portfolio_data.columns:
-                # Calculate expected returns from recent data
-                expected_returns[t] = calculate_annualized_return(portfolio_data[t]) * 100
+            st.session_state.hybrid_recs = results
+
+            if not results.empty:
+                # Show recommendation context
+                st.subheader(f"🌟 Recommendations {recommendation_basis}")
                 
-                # Calculate actual returns from full history
-                stock_data = get_stock_data(t, start_date, end_date)
-                actual_returns[t] = calculate_annual_return(stock_data, start_date, end_date) * 100
+                # Show recommendations
+                for _, row in results.iterrows():
+                    movie_card(row, context="hybrid")
+            else:
+                st.warning("⚠️ No recommendations found matching your criteria")
 
-            st.subheader("Optimized Portfolio Allocation")
+def render_dl_tab():
+    """Render the deep learning recommendations tab"""
+    st.subheader("🤖 Deep Learning Recommendations")
+    st.info("Personalized recommendations based on your taste profile")
+    
+    movies_df, _, _ = st.session_state.cached_data
+    
+    # Show user preferences context
+    if st.session_state.user_preferences.get('liked_movies', []):
+        top_genres = get_user_preferred_genres()
+        if top_genres:
+            st.write(f"🎯 Based on your preferences for: **{', '.join(top_genres)}**")
+    
+    # Train DL model on button click
+    if st.button("Generate Personalized Recommendations", key="dl_btn", use_container_width=True):
+        try:
+            # Create user ID from username
+            username = st.session_state.username
+            user_id = abs(hash(username)) % 10000
             
-            # Create allocation dataframe
-            allocation_df = pd.DataFrame({
-                'Stock': portfolio_data.columns,
-                'Weight': [f"{w*100:.2f}%" for w in weights],
-                'Allocation ($)': [w * portfolio_size for w in weights],
-                'Expected Return': [f"{expected_returns.get(t, 0):.2f}%" for t in portfolio_data.columns]
-            })
+            # Get all movie IDs
+            all_movie_ids = movies_df['id'].tolist()
             
-            # Format allocation
-            allocation_df['Allocation ($)'] = allocation_df['Allocation ($)'].apply(
-                lambda x: f"${x:,.2f}"
-            )
+            # Predict ratings
+            predictions = []
+            for idx, movie_id in enumerate(all_movie_ids):
+                pred = dl_model.predict(user_id, movie_id)
+                predictions.append((movie_id, pred.est))
             
-            st.dataframe(allocation_df)
+            # Sort predictions
+            predictions.sort(key=lambda x: x[1], reverse=True)
+            top_movie_ids = [mid for mid, _ in predictions[:10]]
+            recs_df = movies_df[movies_df['id'].isin(top_movie_ids)]
+            
+            st.session_state.dl_recs = recs_df
 
-            # Portfolio visualization
-            fig = px.pie(
-                names=portfolio_data.columns,
-                values=weights * 100,
-                title='Portfolio Allocation',
-                hole=0.4
-            )
-            fig.update_traces(
-                textposition='inside', 
-                textinfo='percent+label',
-                hoverinfo='label+percent+value',
-                marker=dict(line=dict(color='#000000', width=2)))
-            fig.update_layout(
-                template='plotly_dark',
-                showlegend=False,
-                height=500
-            )
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Return comparison
-            st.subheader("Return Comparison")
-            return_comparison = []
-            for t in portfolio_data.columns:
-                return_comparison.append({
-                    'Stock': t,
-                    'Expected Return': expected_returns.get(t, 0),
-                    'Actual Return': actual_returns.get(t, 0)
-                })
-            
-            return_df = pd.DataFrame(return_comparison)
-            
-            # Format the return columns as strings
-            return_df['Expected Return'] = return_df['Expected Return'].apply(
-                lambda x: f"{x:.2f}%" if isinstance(x, (int, float)) else str(x)
-            )
-            return_df['Actual Return'] = return_df['Actual Return'].apply(
-                lambda x: f"{x:.2f}%" if isinstance(x, (int, float)) else str(x)
-            )
-            
-            st.dataframe(return_df)
-            
-            # Correlation heatmap
-            st.subheader("Stock Correlation Matrix")
-            corr = returns.corr()
-            fig_corr = go.Figure(go.Heatmap(
-                z=corr.values,
-                x=corr.columns,
-                y=corr.index,
-                colorscale='RdYlGn',
-                zmin=-1,
-                zmax=1,
-                text=np.round(corr.values, 2),
-                texttemplate="%{text}"
-            ))
-            fig_corr.update_layout(
-                height=600,
-                title="Stock Correlation Heatmap",
-                template='plotly_dark'
-            )
-            st.plotly_chart(fig_corr, use_container_width=True)
-            
-            # Monte Carlo Simulation
-            st.subheader("Portfolio Risk Simulation")
-            
-            # Run simulation
-            num_simulations = 1000
-            portfolio_returns = []
-            
-            for _ in range(num_simulations):
-                # Random weights
-                rand_weights = np.random.random(len(weights))
-                rand_weights /= rand_weights.sum()
+            st.subheader("🌟 Personalized For You")
+            if not recs_df.empty:
+                # Show recommendation context
+                liked_movies = st.session_state.user_preferences.get('liked_movies', [])
+                if liked_movies:
+                    st.write(f"✨ Based on your likes: **{', '.join(liked_movies[:3])}**")
                 
-                # Portfolio return
-                port_return = np.sum(returns.mean() * rand_weights) * 252
-                portfolio_returns.append(port_return)
-            
-            # Convert to numpy array
-            portfolio_returns = np.array(portfolio_returns)
-            
-            # Create histogram
-            fig_hist = px.histogram(
-                x=portfolio_returns * 100,
-                nbins=50,
-                title="Portfolio Return Distribution",
-                labels={'x': 'Annual Return (%)'}
-            )
-            fig_hist.update_layout(
-                template='plotly_dark',
-                xaxis_title="Annual Return (%)",
-                yaxis_title="Frequency",
-                height=500
-            )
-            fig_hist.add_vline(
-                x=np.mean(portfolio_returns) * 100, 
-                line_dash="dash", 
-                line_color="red",
-                annotation_text=f"Mean: {np.mean(portfolio_returns)*100:.2f}%"
-            )
-            st.plotly_chart(fig_hist, use_container_width=True)
-            
-            # Risk metrics
-            st.subheader("Portfolio Risk Metrics")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Expected Return", f"{np.mean(portfolio_returns)*100:.2f}%")
-            col2.metric("Best Case (95%)", f"{np.percentile(portfolio_returns, 95)*100:.2f}%")
-            col3.metric("Worst Case (5%)", f"{np.percentile(portfolio_returns, 5)*100:.2f}%")
-            
-            # Macroeconomic Dashboard
-            st.subheader("Macroeconomic Dashboard")
-            macro_data = get_macro_data()
-            
-            col_m1, col_m2, col_m3, col_m4, col_m5, col_m6 = st.columns(6)
-            col_m1.markdown(f"""
-                <div class="macro-metric">
-                    <h5>Inflation</h5>
-                    <h3>{macro_data['inflation']}%</h3>
-                    <small>Source: {macro_data['source']}</small>
-                    <small>Updated: {macro_data['last_updated']}</small>
-                </div>
-            """, unsafe_allow_html=True)
-            col_m2.markdown(f"""
-                <div class="macro-metric">
-                    <h5>Interest Rate</h5>
-                    <h3>{macro_data['interest_rate']}%</h3>
-                    <small>Source: {macro_data['source']}</small>
-                    <small>Updated: {macro_data['last_updated']}</small>
-                </div>
-            """, unsafe_allow_html=True)
-            col_m3.markdown(f"""
-                <div class="macro-metric">
-                    <h5>Unemployment</h5>
-                    <h3>{macro_data['unemployment']}%</h3>
-                    <small>Source: {macro_data['source']}</small>
-                    <small>Updated: {macro_data['last_updated']}</small>
-                </div>
-            """, unsafe_allow_html=True)
-            col_m4.markdown(f"""
-                <div class="macro-metric">
-                    <h5>GDP Growth</h5>
-                    <h3>{macro_data['gdp_growth']}%</h3>
-                    <small>Source: {macro_data['source']}</small>
-                    <small>Updated: {macro_data['last_updated']}</small>
-                </div>
-            """, unsafe_allow_html=True)
-            col_m5.markdown(f"""
-                <div class="macro-metric">
-                    <h5>Consumer Sentiment</h5>
-                    <h3>{macro_data['consumer_sentiment']}</h3>
-                    <small>Source: {macro_data['source']}</small>
-                    <small>Updated: {macro_data['last_updated']}</small>
-                </div>
-            """, unsafe_allow_html=True)
-            col_m6.markdown(f"""
-                <div class="macro-metric">
-                    <h5>Manufacturing PMI</h5>
-                    <h3>{macro_data['manufacturing_pmi']}</h3>
-                    <small>Source: {macro_data['source']}</small>
-                    <small>Updated: {macro_data['last_updated']}</small>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            # Data validation warnings
-            if macro_data['inflation'] > 10:
-                st.warning("High inflation rate detected - may impact portfolio performance")
-            if macro_data['unemployment'] > 10:
-                st.warning("High unemployment rate detected - may indicate economic slowdown")
-            if macro_data['consumer_sentiment'] < 50:
-                st.warning("Low consumer sentiment - may impact consumer stocks")
-            
-            st.markdown(f"""
-            <div class="feature-card">
-                <h4>Macroeconomic Impact Analysis</h4>
-                <p>Current macroeconomic conditions suggest:</p>
-                <ul>
-                    <li><b>Inflation</b> at {macro_data['inflation']}% may lead to tighter monetary policy</li>
-                    <li><b>Interest rates</b> at {macro_data['interest_rate']}% are impacting growth stocks</li>
-                    <li><b>Consumer sentiment</b> of {macro_data['consumer_sentiment']} indicates moderate consumer confidence</li>
-                </ul>
-            </div>
-            """, unsafe_allow_html=True)
+                # Show recommendations
+                for i, row in recs_df.iterrows():
+                    unique_index = f"{i}_{uuid.uuid4().hex[:6]}"
+                    movie_card(row, context="dl", index=unique_index)
+                    if "username" in st.session_state:
+                        log_event(username, row['title'], "recommended")
+            else:
+                st.warning("No recommendations found. Try rating more movies.")
 
-    # AI Assistant Tab
-    with tab6:
-        st.markdown('<div class="header">🤖 AI Investment Assistant</div>', unsafe_allow_html=True)
-        st.markdown('<div class="subheader">Get insights and recommendations powered by AI</div>', unsafe_allow_html=True)
-        
-        # Sample questions
-        col_q1, col_q2, col_q3 = st.columns(3)
-        with col_q1:
-            if st.button("What's the risk profile for this stock?", key="q1"):
-                st.session_state.ai_query = "What's the risk profile for this stock?"
-        with col_q2:
-            if st.button("Should I buy or sell this stock?", key="q2"):
-                st.session_state.ai_query = "Should I buy or sell this stock?"
-        with col_q3:
-            if st.button("How does this fit in my portfolio?", key="q3"):
-                st.session_state.ai_query = "How does this fit in my portfolio?"
-        
-        # Chat interface
-        with st.form("ai_assistant_form"):
-            query = st.text_area("Ask investment questions:", 
-                                st.session_state.get('ai_query', "What's the investment outlook for this stock?"))
-            submitted = st.form_submit_button("Get Analysis")
-        
-        if submitted:
-            with st.spinner('Generating insights...'):
-                response = generate_ai_response(query, data, portfolio_data, user_risk_profile, user_investment_goal)
-                st.markdown(f"""
-                <div class="ai-response">
-                    <h4>🔍 AI Analysis</h4>
-                    <p style="font-size:1.1em;">{response}</p>
-                    <div style="display:flex; justify-content:space-between; margin-top:20px;">
-                        <small>Generated at {datetime.now().strftime('%H:%M:%S')}</small>
-                        <small>Risk Profile: {user_risk_profile}</small>
-                        <small>Investment Goal: {user_investment_goal}</small>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-        
-        # Portfolio Recommendations
-        st.subheader("Personalized Recommendations")
-        st.markdown(f"""
-        <div class="feature-card">
-            <h4>Based on your profile: {user_risk_profile} risk, {user_investment_goal} focus</h4>
-            <ul>
-                <li><b>Asset Allocation:</b> {np.random.randint(60,80)}% equities, {np.random.randint(20,30)}% bonds, {np.random.randint(5,15)}% alternatives</li>
-                <li><b>Sector Focus:</b> Technology ({np.random.randint(30,40)}%), Healthcare ({np.random.randint(15,25)}%), Financials ({np.random.randint(10,20)}%)</li>
-                <li><b>Position Sizing:</b> Limit single positions to {np.random.randint(5,10)}% of portfolio</li>
-                <li><b>Rebalancing:</b> Quarterly rebalancing recommended</li>
-                <li><b>Tax Optimization:</b> {'Tax-loss harvesting' if np.random.random() > 0.5 else 'Long-term holding strategy'}</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Market Insights
-        st.subheader("Market Insights")
-        st.markdown(f"""
-        <div class="feature-card">
-            <h4>Current Market Conditions</h4>
-            <p>Our analysis of macroeconomic factors and market sentiment indicates:</p>
-            <ul>
-                <li><b>Market Phase:</b> {'Bull market' if sentiment_value > 60 else 'Bear market' if sentiment_value < 40 else 'Neutral market'}</li>
-                <li><b>Recommended Strategy:</b> {'Growth focus' if sentiment_value > 60 else 'Defensive positioning' if sentiment_value < 40 else 'Balanced approach'}</li>
-                <li><b>Key Opportunity:</b> {'Technology sector' if np.random.random() > 0.5 else 'Emerging markets'}</li>
-                <li><b>Key Risk:</b> {'Interest rate hikes' if np.random.random() > 0.5 else 'Geopolitical tensions'}</li>
-                <li><b>Portfolio Action:</b> {'Rebalance towards value stocks' if np.random.random() > 0.5 else 'Increase cash position'}</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
 
-    # Strategy Tester Tab
-    with tab7:
-        st.markdown('<div class="header">🧪 Strategy Backtesting</div>', unsafe_allow_html=True)
-        st.markdown('<div class="subheader">Test trading strategies with historical data</div>', unsafe_allow_html=True)
-        
-        # Strategy selection
-        st.subheader("Select Strategy")
-        strategy = st.selectbox("Trading Strategy:", 
-                              ["Moving Average Crossover", 
-                               "RSI Divergence", 
-                               "Bollinger Band Reversion",
-                               "MACD Crossover",
-                               "Golden Cross"])
-        
-        # Parameters
-        st.subheader("Strategy Parameters")
-        params = {}
-        if strategy == "Moving Average Crossover":
-            params['short_window'] = st.slider("Short Window", 5, 50, 20)
-            params['long_window'] = st.slider("Long Window", 20, 200, 50)
-        elif strategy == "RSI Divergence":
-            params['rsi_period'] = st.slider("RSI Period", 5, 30, 14)
-            params['oversold'] = st.slider("Oversold Level", 0, 40, 30)
-            params['overbought'] = st.slider("Overbought Level", 60, 100, 70)
-        elif strategy == "Bollinger Band Reversion":
-            params['bb_period'] = st.slider("Bollinger Period", 10, 50, 20)
-            params['std_dev'] = st.slider("Standard Deviations", 1.0, 3.0, 2.0)
-        elif strategy == "MACD Crossover":
-            params['fast'] = st.slider("Fast EMA", 5, 20, 12)
-            params['slow'] = st.slider("Slow EMA", 15, 50, 26)
-            params['signal'] = st.slider("Signal Period", 5, 20, 9)
-        elif strategy == "Golden Cross":
-            params['short_ma'] = st.slider("Short MA", 20, 100, 50)
-            params['long_ma'] = st.slider("Long MA", 100, 300, 200)
-        
-        # Backtest button
-        if st.button("Run Backtest", key="backtest_run"):
-            with st.spinner('Running backtest...'):
-                results = backtest_strategy(data, strategy, params)
-                
-            # Display results
-            st.subheader("Backtest Results")
-            col_res1, col_res2, col_res3, col_res4 = st.columns(4)
-            col_res1.metric("Total Return", f"{results['return']:.2f}%")
-            col_res2.metric("Max Drawdown", f"{results['drawdown']:.2f}%")
-            col_res3.metric("Sharpe Ratio", f"{results['sharpe']:.2f}")
-            col_res4.metric("Trades Executed", len(results['trades']))
-            
-            # Performance visualization
-            st.subheader("Strategy Performance")
-            fig_backtest = go.Figure()
-            fig_backtest.add_trace(go.Scatter(
-                x=data.index,
-                y=data['Close'],
-                mode='lines',
-                name='Price',
-                line=dict(color='#4F8BF9'),
-                yaxis='y'
-            ))
-            
-            fig_backtest.add_trace(go.Scatter(
-                x=data.index[params.get('long_window', 50):],
-                y=results['portfolio'],
-                mode='lines',
-                name='Portfolio Value',
-                line=dict(color='#00FF00'),
-                yaxis='y2'
-            ))
-            
-            # Add trade markers
-            buy_dates = [t[1] for t in results['trades'] if t[0] == 'buy']
-            buy_prices = [t[2] for t in results['trades'] if t[0] == 'buy']
-            sell_dates = [t[1] for t in results['trades'] if t[0] == 'sell']
-            sell_prices = [t[2] for t in results['trades'] if t[0] == 'sell']
-            
-            fig_backtest.add_trace(go.Scatter(
-                x=buy_dates,
-                y=buy_prices,
-                mode='markers',
-                name='Buy',
-                marker=dict(color='green', size=10, symbol='triangle-up')
-            ))
-            
-            fig_backtest.add_trace(go.Scatter(
-                x=sell_dates,
-                y=sell_prices,
-                mode='markers',
-                name='Sell',
-                marker=dict(color='red', size=10, symbol='triangle-down')
-            ))
-            
-            fig_backtest.update_layout(
-                title=f'{strategy} Performance',
-                xaxis_title='Date',
-                yaxis_title='Price',
-                yaxis2=dict(
-                    title='Portfolio Value',
-                    overlaying='y',
-                    side='right',
-                    showgrid=False
-                ),
-                template='plotly_dark',
-                height=500,
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
-            st.plotly_chart(fig_backtest, use_container_width=True)
-            
-            # Trade log
-            if results['trades']:
-                st.subheader("Trade Log")
-                trades_df = pd.DataFrame(results['trades'], columns=['Action', 'Date', 'Price', 'Shares'])
-                st.dataframe(trades_df)
+def render_profile_tab():
+    """Render the user profile tab"""
+    st.subheader(f"👤 {st.session_state.username}'s Profile")
+    
+    # Accessibility toggle
+    st.checkbox("Enable High Contrast Mode", 
+                value=st.session_state.high_contrast, 
+                key="high_contrast_toggle",
+                on_change=lambda: setattr(st.session_state, 'high_contrast', not st.session_state.high_contrast))
 
-    # Real-Time Monitoring Tab
-    with tab8:
-        st.markdown('<div class="header">🚀 Real-Time Dashboard</div>', unsafe_allow_html=True)
-        st.markdown('<div class="subheader">Live market monitoring and predictions</div>', unsafe_allow_html=True)
-        
-        # Real-time data fetching
-        if st.button("Refresh Real-Time Data"):
-            st.experimental_rerun()
-        
-        col_rt1, col_rt2, col_rt3 = st.columns(3)
-        with col_rt1:
-            st.metric("Last Refresh", datetime.now().strftime("%H:%M:%S"))
-        with col_rt2:
-            st.metric("Market Status", "Open" if 9 <= datetime.now().hour < 16 else "Closed")
-        with col_rt3:
-            st.metric("Data Latency", "0.5s")
-        
-        # Real-time price chart
-        st.subheader("Real-Time Price Movement")
-        # Placeholder for real-time chart
-        st.info("Real-time chart integration requires WebSocket connection to market data API")
-        
-        # Model monitoring
-        st.subheader("Model Performance Monitoring")
-        if rt_monitor.performance_history:
-            perf_df = pd.DataFrame(rt_monitor.performance_history)
-            fig_perf = px.line(perf_df, x='timestamp', y='rmse', color='model', 
-                              title='Model RMSE Over Time', markers=True)
-            fig_perf.update_layout(template='plotly_dark')
-            st.plotly_chart(fig_perf, use_container_width=True)
+    # User preferences section
+    st.markdown("### 🎭 Your Preferences")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 👍 Liked Movies")
+        liked_movies = st.session_state.user_preferences.get('liked_movies', [])
+        if liked_movies:
+            for movie in liked_movies:
+                st.write(f"- {movie}")
         else:
-            st.warning("No performance data available yet")
-        
-        # Alert system
-        st.subheader("Alert System")
-        if st.button("Test Alert Notification"):
-            rt_monitor.send_alert("This is a test alert from Quantum Stock Analytics")
-            st.success("Test alert sent!")
-        
-        # System status
-        st.subheader("System Status")
-        col_status1, col_status2, col_status3 = st.columns(3)
-        col_status1.metric("Data API", "Connected", "OK")
-        col_status2.metric("Model Serving", "Active", "OK")
-        col_status3.metric("Prediction Latency", "120ms")
-        
-        # Retraining status
-        st.subheader("Model Retraining")
-        if rt_monitor.should_retrain():
-            st.warning("Models are due for retraining")
-            if st.button("Retrain Models Now"):
-                with st.spinner("Retraining models..."):
-                    # This would trigger retraining in a real system
-                    time.sleep(5)
-                    rt_monitor.last_retrain = datetime.now()
-                    st.success("Models retrained successfully!")
-        else:
-            next_retrain = rt_monitor.last_retrain + timedelta(days=7)
-            st.info(f"Models up to date. Next retraining scheduled for {next_retrain.strftime('%Y-%m-%d')}")
+            st.info("No liked movies yet")
+            
+        # Show top genres based on liked movies
+        top_genres = get_user_preferred_genres()
+        if top_genres:
+            st.markdown("#### ⭐ Preferred Genres")
+            st.write(", ".join([f"**{genre}**" for genre in top_genres]))
+            
+        # Show mood preferences
+        mood_prefs = st.session_state.user_preferences.get('mood_preferences', [])
+        if mood_prefs:
+            st.markdown("#### 😊 Preferred Moods")
+            st.write(", ".join([f"**{mood}**" for mood in mood_prefs]))
 
+    with col2:
+        st.markdown("#### 👎 Disliked Movies")
+        disliked_movies = st.session_state.user_preferences.get('disliked_movies', [])
+        if disliked_movies:
+            for movie in disliked_movies:
+                st.write(f"- {movie}")
+        else:
+            st.info("No disliked movies yet")
+            
+        st.markdown("#### 📝 Watchlist")
+        watchlist = st.session_state.user_preferences.get('watchlist', [])
+        if watchlist:
+            for movie in watchlist:
+                st.write(f"- {movie}")
+        else:
+            st.info("Your watchlist is empty")
+            
+        # Sustainability impact
+        st.markdown("#### 🌱 Environmental Impact")
+        co2_savings = st.session_state.co2_savings
+        st.metric("Estimated CO₂ Savings", f"{co2_savings:.1f} kg", 
+                  help="Calculated based on the assumption that watching at home saves 2.5 kg CO₂ per movie compared to theater visits")
+        st.caption("By streaming movies at home, you've helped reduce carbon emissions!")
+
+    # Activity log section
+    st.markdown("### 📝 Your Activity")
+    log_file = f'user_data/{st.session_state.username}_log.csv'
+    if os.path.exists(log_file):
+        logs = pd.read_csv(log_file)
+        st.dataframe(logs.sort_values("Timestamp", ascending=False).head(10))
+    else:
+        st.info("No activity recorded yet")
+
+    # Recommendation history
+    st.markdown("### 🎬 Recently Recommended")
+    if hasattr(st.session_state, 'dl_recs') and not st.session_state.dl_recs.empty:
+        cols = st.columns(3)
+        for idx, (_, row) in enumerate(st.session_state.dl_recs.head(3).iterrows()):
+            with cols[idx]:
+                display_poster(row['poster_path'], class_name="poster-container", width=150)
+                st.write(f"**{row['title']}**")
+                st.write(f"⭐ {row['vote_average']}")
+    else:
+        st.info("No recommendations generated yet")
+        
+    # Logout button
+    st.markdown("---")
+    if st.button("🔒 Logout", use_container_width=True):
+        st.session_state.logged_in = False
+        st.session_state.username = ""
+        st.success("You have been logged out. Please login again.")
+        time.sleep(2)
+        st.rerun()
+
+def main_app():
+    """Main application logic after login"""
+    st.markdown(f'<h1 class="neon-title">🎬 Movie Recommender Pro</h1>', unsafe_allow_html=True)
+    st.markdown(f'<div style="text-align: center; margin-bottom: 30px;">Welcome back, <strong>{st.session_state.username}</strong>!</div>', unsafe_allow_html=True)
+    
+    tabs = st.tabs([
+        "🏠 Home",
+        "🔍 Search",
+        "📊 Popular",
+        "🎯 Genre Filter",
+        "🎬 Latest Releases",
+        "📈 Analytics",
+        "🎭 Actor/Director",
+        "💡 Hybrid",
+        "🤖 Deep Learning",
+        "👤 Profile"
+    ])
+    
+    with tabs[0]:
+        render_home_tab()
+    with tabs[1]:
+        render_search_tab()
+    with tabs[2]:
+        render_popular_tab()
+    with tabs[3]:
+        render_genre_tab()
+    with tabs[4]:
+        render_latest_tab()
+    with tabs[5]:
+        render_analytics_tab()
+    with tabs[6]:
+        render_actor_director_tab()
+    with tabs[7]:
+        render_hybrid_tab()
+    with tabs[8]:
+        render_dl_tab()
+    with tabs[9]:
+        render_profile_tab()
+
+def main():
+    """Main application entry point"""
+    # High contrast mode toggle
+    if st.session_state.high_contrast:
+        st.markdown('<style>:root {--primary: #ff0000; --secondary: #00ffff; --accent: #ffff00; --background: #000000; --card: #111111; --text: #ffffff;}</style>', unsafe_allow_html=True)
+    
+    if not st.session_state.logged_in:
+        render_login_signup()
+    else:
+        try:
+            # Load data if not already cached
+            if st.session_state.cached_data is None:
+                with st.spinner("Loading movie data. This may take a few minutes..."):
+                    api_key = st.secrets["TMDB_API_KEY"]
+                    movies_df, ratings_df, precomputed = load_data(api_key)
+                    st.session_state.cached_data = (movies_df, ratings_df, precomputed)
+            
+            # Load deep learning model
+            global dl_model
+            dl_model = train_dl_model()
+            
+            # Render main application
+            main_app()
+        except Exception as e:
+            st.error(f"Application error: {str(e)}")
+
+# =========================================
+# STYLESHEET
+# =========================================
+def load_styles():
+    """Load custom CSS styles"""
+    st.markdown("""
+    <style>
+        :root {
+            --primary: #ff6b6b;
+            --secondary: #4ecdc4;
+            --accent: #ffbe0b;
+            --background: #0f0c29;
+            --card: rgba(30, 30, 46, 0.8);
+            --text: #ffffff;
+            --text-secondary: #f0f0f0;
+        }
+        
+        /* Improved contrast for accessibility */
+        body, .main { 
+            background-color: var(--background);
+            color: var(--text);
+            font-family: 'Poppins', sans-serif;
+            overflow-x: hidden;
+            line-height: 1.6;
+        }
+        
+        h1, h2, h3, h4, h5, h6 {
+            color: var(--accent);
+        }
+        
+        a {
+            color: var(--secondary);
+            text-decoration: underline;
+        }
+        
+        /* Accessibility: Ensure proper contrast for all text */
+        .stTextInput>div>div>input, 
+        .stSelectbox>div>div>select,
+        .stTextArea>div>div>textarea {
+            color: #333 !important;
+            background-color: #fff !important;
+        }
+        
+        /* Glassmorphism effect for cards */
+        .glass-card {
+            background: linear-gradient(135deg, rgba(255, 107, 107, 0.15), rgba(78, 205, 196, 0.15));
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.36);
+            padding: 20px;
+            margin: 15px 0;
+        }
+        
+        .glass-card:hover {
+            transform: translateY(-5px);
+            border: 1px solid rgba(255, 190, 11, 0.4);
+        }
+        
+        /* Feature cards */
+        .feature-card {
+            background: linear-gradient(135deg, rgba(255, 107, 107, 0.2), rgba(78, 205, 196, 0.2));
+            border-radius: 16px;
+            padding: 25px;
+            margin: 15px 0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .feature-card:hover {
+            transform: scale(1.02);
+        }
+        
+        /* Gradient buttons */
+        .stButton>button {
+            background: linear-gradient(45deg, var(--primary), var(--accent)) !important;
+            color: #1a1a2e !important;
+            border: none !important;
+            border-radius: 50px !important;
+            padding: 10px 25px !important;
+            font-weight: 600 !important;
+            text-transform: uppercase;
+            letter-spacing: 1px !important;
+            transition: all 0.3s ease !important;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2) !important;
+            width: 100%;
+        }
+        
+        .stButton>button:hover {
+            transform: translateY(-3px) !important;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3) !important;
+            background: linear-gradient(45deg, var(--accent), var(--primary)) !important;
+        }
+        
+        /* Tabs styling */
+        .stTabs [data-baseweb="tab"] {
+            background-color: transparent;
+            padding: 15px 25px;
+            margin: 0 5px;
+            border-radius: 12px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .stTabs [data-baseweb="tab"]:hover {
+            background: rgba(30, 30, 30, 0.5);
+            transform: translateY(-3px);
+        }
+        
+        .stTabs [aria-selected="true"] {
+            background: linear-gradient(45deg, var(--primary), var(--accent)) !important;
+            color: #1a1a2e !important;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25) !important;
+            border: none !important;
+        }
+        
+        /* Input fields */
+        .stTextInput>div>div>input, 
+        .stSelectbox>div>div>select,
+        .stTextArea>div>div>textarea {
+            background: rgba(30, 30, 46, 0.6) !important;
+            color: var(--text) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border-radius: 12px !important;
+            padding: 12px 15px !important;
+            transition: all 0.3s ease;
+        }
+        
+        .stTextInput>div>div>input:focus, 
+        .stSelectbox>div>div>select:focus,
+        .stTextArea>div>div>textarea:focus {
+            border: 1px solid var(--accent) !important;
+            box-shadow: 0 0 10px rgba(255, 190, 11, 0.3);
+        }
+        
+        /* Custom movie card */
+        .movie-card {
+            background: var(--card);
+            border-radius: 16px;
+            padding: 20px;
+            margin: 15px 0;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            border-left: 4px solid var(--accent);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .movie-card:before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+        }
+        
+        .movie-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(255, 107, 107, 0.4);
+        }
+        
+        .tag {
+            display: inline-block;
+            background: rgba(78, 205, 196, 0.2);
+            border-radius: 20px;
+            padding: 6px 15px;
+            margin-right: 8px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+            color: var(--text);
+            border: 1px solid rgba(78, 205, 196, 0.3);
+        }
+        
+        .tag-bollywood {
+            background: linear-gradient(135deg, #FFD700, #FFA500) !important;
+            color: #000 !important;
+            border: 1px solid #FF8C00 !important;
+        }
+        
+        .tag-webseries {
+            background: linear-gradient(135deg, #00FF7F, #00CED1) !important;
+            color: #000 !important;
+            border: 1px solid #008B8B !important;
+        }
+        
+        .tag-seasons {
+            background: linear-gradient(135deg, #1E90FF, #4169E1) !important;
+            color: #fff !important;
+            border: 1px solid #0000CD !important;
+        }
+        
+        .tag-genre {
+            background: linear-gradient(135deg, #FF69B4, #FF1493) !important;
+            color: #fff !important;
+            border: 1px solid #C71585 !important;
+        }
+        
+        .similarity-bar {
+            height: 8px;
+            background: linear-gradient(90deg, var(--secondary), var(--accent));
+            border-radius: 4px;
+            margin: 12px 0;
+        }
+        
+        /* Neon title */
+        .neon-title {
+            text-shadow: 0 0 10px var(--primary), 
+                         0 0 20px var(--primary), 
+                         0 0 30px var(--accent);
+        }
+        
+        /* Animated background */
+        .animated-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            background: linear-gradient(-45deg, #0f0c29, #302b63, #24243e, #1e1e1e);
+            background-size: 400% 400%;
+            animation: gradientBG 15s ease infinite;
+        }
+        
+        @keyframes gradientBG {
+            0% { background-position: 0% 50% }
+            50% { background-position: 100% 50% }
+            100% { background-position: 0% 50% }
+        }
+        
+        /* 3D Poster Effects */
+        .poster-container {
+            transition: transform 0.5s ease;
+            transform-style: preserve-3d;
+            perspective: 1000px;
+            margin-bottom: 15px;
+        }
+        
+        .poster-container:hover {
+            transform: perspective(1000px) rotateY(10deg) rotateX(5deg) translateZ(30px);
+        }
+        
+        .poster-img {
+            width: 100%;
+            border-radius: 10px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+        }
+        
+        /* Responsive adjustments */
+        @media only screen and (max-width: 768px) {
+            .stTabs [data-baseweb="tab"] {
+                padding: 12px 15px;
+                margin: 5px;
+                font-size: 12px;
+            }
+            
+            .movie-card {
+                padding: 15px;
+            }
+            
+            .stButton>button {
+                padding: 8px 15px !important;
+                font-size: 12px !important;
+            }
+        }
+        
+        /* Animation for all sections */
+        .section-animation {
+            animation: sectionFadeIn 1s ease forwards;
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        
+        @keyframes sectionFadeIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        /* High contrast mode for accessibility */
+        .high-contrast {
+            --primary: #ff0000;
+            --secondary: #00ffff;
+            --accent: #ffff00;
+            --background: #000000;
+            --card: #111111;
+            --text: #ffffff;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Add animated background
+    st.markdown('<div class="animated-bg"></div>', unsafe_allow_html=True)
+
+# =========================================
+# APPLICATION ENTRY POINT
+# =========================================
 if __name__ == "__main__":
+    # Apply custom styles
+    load_styles()
+    
+    # Configure page
+    configure_page()
+    
+    # Initialize session state
+    initialize_session_state()
+    
+    # Load deep learning model
+    dl_model = None
+    
+    # Run main application
     main()
