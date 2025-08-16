@@ -1030,12 +1030,525 @@ def main():
         
         # Tab 0 - Home
         with tabs[0]:
-            # (Content remains the same but uses the new modular functions)
-            pass
+            # Project description
+            with st.expander("🌟 About Movie Recommender Pro", expanded=True):
+                st.markdown("""
+                <div style="padding: 20px; border-radius: 15px; background: linear-gradient(135deg, rgba(255, 107, 107, 0.2), rgba(78, 205, 196, 0.2));">
+                    <h3 style="color: #ffbe0b; text-align: center;">Discover Your Next Favorite Movie!</h3>
+                    <p style="font-size: 1.1rem;">Movie Recommender Pro uses advanced AI algorithms to find perfect movie matches based on your unique preferences. 
+                    Our hybrid recommendation system combines multiple techniques to deliver personalized suggestions.</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Feature showcase
+                st.subheader("✨ Key Features")
+                
+                # Feature cards in columns
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.markdown("""
+                    <div class="feature-card section-animation">
+                        <h4>🔍 Smart Search</h4>
+                        <p>Find movies by title, genre, or keywords</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.markdown("""
+                    <div class="feature-card section-animation">
+                        <h4>🤖 AI Recommendations</h4>
+                        <p>Deep learning models personalize suggestions</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                with col2:
+                    st.markdown("""
+                    <div class="feature-card section-animation">
+                        <h4>💡 Hybrid System</h4>
+                        <p>Combines content-based and collaborative filtering</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.markdown("""
+                    <div class="feature-card section-animation">
+                        <h4>📈 Visual Analytics</h4>
+                        <p>Explore movie trends and genre distributions</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                with col3:
+                    st.markdown("""
+                    <div class="feature-card section-animation">
+                        <h4>👤 Personal Profile</h4>
+                        <p>Track your liked/disliked movies</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.markdown("""
+                    <div class="feature-card section-animation">
+                        <h4>🌱 Sustainability Focus</h4>
+                        <p>Track your environmental impact</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # Real-time data section
+            st.subheader("🔥 Real-Time Trending")
+            realtime_data = fetch_realtime_data()
+            
+            if realtime_data['trending']:
+                st.markdown("### 🚀 Trending Today")
+                cols = st.columns(5)
+                for idx, movie in enumerate(realtime_data['trending'][:5]):
+                    with cols[idx % 5]:
+                        display_poster(movie.get('poster_path'), class_name="poster-container", width=150)
+                        st.caption(f"**{movie['title']}**")
+                        st.caption(f"⭐ {movie.get('vote_average', 'N/A')}")
+            
+            if realtime_data['new_releases']:
+                st.markdown("### 🆕 New Releases")
+                cols = st.columns(5)
+                for idx, movie in enumerate(realtime_data['new_releases'][:5]):
+                    with cols[idx % 5]:
+                        display_poster(movie.get('poster_path'), class_name="poster-container", width=150)
+                        st.caption(f"**{movie['title']}**")
+                        st.caption(f"📅 {movie.get('release_date', 'N/A')}")
+            
+            # Bollywood section
+            st.markdown("### 🎬 Bollywood Spotlight")
+            bollywood_movies = movies_df[movies_df['is_bollywood'] == True].sort_values('weighted_score', ascending=False).head(10)
+            
+            if not bollywood_movies.empty:
+                cols = st.columns(5)
+                for idx, (_, row) in enumerate(bollywood_movies.head(5).iterrows()):
+                    with cols[idx % 5]:
+                        display_poster(row.get('poster_path'), class_name="poster-container", width=150)
+                        st.caption(f"**{row['title']}**")
+                        st.progress(row['weighted_score'] / 10, text=f"⭐ {row['vote_average']}")
+            else:
+                st.info("No Bollywood movies available")
+            
+            # Featured Recommendations
+            st.markdown("### ✨ Featured Recommendations")
+            featured = movies_df.sample(3)
+            for _, row in featured.iterrows():
+                movie_card(row, context="home")
+            
+            # Admin Panel
+            if st.session_state.username == "Vic":
+                with st.expander("🛡️ Admin Panel - User Login Activity", expanded=False):
+                    st.markdown("### 👨‍💼 User Login Logs")
+                    if os.path.exists(LOGIN_ACTIVITY_FILE):
+                        logs = pd.read_csv(LOGIN_ACTIVITY_FILE)
+                        st.dataframe(logs.sort_values("Timestamp", ascending=False).head(10))
+                    else:
+                        st.info("No login activity recorded yet.")
+                    if st.button("🔄 Refresh Logs"):
+                        st.rerun()
+
+        # Tab 1 - Search
+        with tabs[1]:
+            st.subheader("🔍 Search Movies")
+            search_term = st.text_input("Search by title, genre, or keyword")
+            
+            if search_term:
+                # Search by title
+                title_results = movies_df[movies_df['title'].str.contains(search_term, case=False)]
+                
+                # Search by genre
+                genre_results = movies_df[movies_df['genres'].str.contains(search_term, case=False)]
+                
+                # Search by keyword in overview
+                keyword_results = movies_df[movies_df['overview'].str.contains(search_term, case=False)]
+                
+                # Combine results
+                results = pd.concat([title_results, genre_results, keyword_results]).drop_duplicates(subset=["id"])
+
+                
+                if not results.empty:
+                    st.write(f"🔍 Found {len(results)} matches")
+                    for _, row in results.head(10).iterrows():
+                        movie_card(row, show_feedback=True, context="search")
+                else:
+                    st.warning("No movies found matching your search")
+
+        # Tab 2 - Popular
+        with tabs[2]:
+            st.subheader("📂 Browse Movie Database")
+            
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                sort_options = [
+                    "Title", "Rating", "Popularity", "Release Date (Newest)", 
+                    "Release Date (Oldest)", "Budget (High to Low)", "Budget (Low to High)"
+                ]
+                sort_by = st.selectbox("Sort by", sort_options, key="popular_sort")
+            with col2:
+                num_movies = st.slider("Number per page", 10, 100, 20, key="num_movies_slider")
+            
+            # Pagination
+            page_number = st.number_input("Page", min_value=1, value=1, step=1)
+            start_idx = (page_number - 1) * num_movies
+            end_idx = start_idx + num_movies
+            
+            sorted_df = movies_df.copy()
+            if sort_by == "Rating":
+                sorted_df = sorted_df.sort_values("vote_average", ascending=False)
+            elif sort_by == "Popularity":
+                sorted_df = sorted_df.sort_values("popularity", ascending=False)
+            elif sort_by == "Release Date (Newest)":
+                sorted_df = sorted_df.sort_values("release_date", ascending=False)
+            elif sort_by == "Release Date (Oldest)":
+                sorted_df = sorted_df.sort_values("release_date", ascending=True)
+            elif sort_by == "Budget (High to Low)":
+                sorted_df = sorted_df.sort_values("budget", ascending=False)
+            elif sort_by == "Budget (Low to High)":
+                sorted_df = sorted_df.sort_values("budget", ascending=True)
+            else:
+                sorted_df = sorted_df.sort_values("title")
+            
+            # Display the slice
+            st.write(f"📖 Showing {start_idx+1} - {min(end_idx, len(sorted_df))} of {len(sorted_df)} movies")
+            for _, row in sorted_df.iloc[start_idx:end_idx].iterrows():
+                movie_card(row, context="browse")
+
         
-        # Other tabs (implementation would follow similar pattern)
-        # ...
+        # Tab 3 - Genre Filter
+        with tabs[3]:
+            st.subheader("🎯 Discover by Genre")
+            # Get available genres
+            available_genres = precomputed['genre_set']
+            valid_defaults = ["Action", "Comedy"]
+            
+            selected_genres = st.multiselect(
+                "Select genres", 
+                available_genres, 
+                default=valid_defaults, 
+                key="genre_filter"
+            )
+            
+            if selected_genres:
+                # Use exact match filtering
+                filtered = movies_df[movies_df['genres'].apply(
+                    lambda g: any(genre in g.split(', ') for genre in selected_genres)
+                )]
+                
+                # Validation for empty results
+                if len(filtered) == 0:
+                    st.warning("No movies found with the selected genres")
+                    st.stop()
+                    
+                st.write(f"🎬 Found {len(filtered)} movies")
+                
+                # Pagination
+                num_per_page = st.slider("Movies per page", 5, 50, 10, key="genre_per_page")
+                page = st.number_input("Page", min_value=1, max_value=len(filtered)//num_per_page+1, value=1)
+                start = (page-1) * num_per_page
+                end = start + num_per_page
+                
+                for _, row in filtered.iloc[start:end].iterrows():
+                    movie_card(row, context="genre")
+            else:
+                st.warning("Please select at least one genre")
         
+        # Tab 4 - Latest Releases (Real-time Data Integration)
+        with tabs[4]:
+            st.subheader("🎬 Latest Movie Releases")
+            
+            # Year selector
+            selected_year = st.selectbox("Select Year", list(range(2018, 2026)), index=2024-2018)
+            
+            # Get movies for selected year
+            current_year_movies = movies_df[
+                (movies_df['release_date'].str.startswith(str(selected_year))) | 
+                (movies_df['release_date'].str.contains(f"^{selected_year}-", na=False))
+            ]
+            
+            # Count movies by industry
+            hollywood_count = len(current_year_movies[current_year_movies['is_bollywood'] == False])
+            bollywood_count = len(current_year_movies[current_year_movies['is_bollywood'] == True])
+            
+            st.markdown(f"### 🎉 Movies of {selected_year}")
+            st.write(f"🎥 **Hollywood:** {hollywood_count} movies | 🎬 **Bollywood:** {bollywood_count} movies")
+            
+            if not current_year_movies.empty:
+                # Genre filter
+                selected_genres = st.multiselect("Filter by genres", precomputed['genre_set'], key="latest_genre_filter")
+                
+                if selected_genres:
+                    def genre_filter(genres_str):
+                        if not isinstance(genres_str, str):
+                            return False
+                        genres_list = [g.strip() for g in genres_str.split(',')]
+                        return any(genre in genres_list for genre in selected_genres)
+                    
+                    current_year_movies = current_year_movies[current_year_movies['genres'].apply(genre_filter)]
+                
+                st.write(f"📊 **Filtered:** {len(current_year_movies)} movies")
+                
+                # Sort by release date (newest first)
+                current_year_movies = current_year_movies.sort_values("release_date", ascending=False)
+                
+                # Pagination
+                num_per_page = st.slider("Movies per page", 10, 100, 20, key="latest_per_page")
+                page = st.number_input("Page", min_value=1, max_value=len(current_year_movies)//num_per_page+1, value=1)
+                start = (page-1) * num_per_page
+                end = start + num_per_page
+                
+                # Show movie cards
+                for _, row in current_year_movies.iloc[start:end].iterrows():
+                    movie_card(row, context="latest", show_feedback=True)
+            else:
+                st.warning(f"No movies found for {selected_year} with selected genres.")
+        
+        # Tab 5 - Analytics      
+        with tabs[5]:
+            st.subheader("📊 Movie Analytics Dashboard")
+            
+            tab1, tab2, tab3 = st.tabs(["Genre Analysis", "Rating Insights", "Word Cloud"])
+            
+            with tab1:
+                st.subheader("🎭 Genre Distribution")
+                genre_count = defaultdict(int)
+                for g_list in movies_df['genres']:
+                    if isinstance(g_list, str):
+                        for genre in g_list.split(', '):
+                            clean_genre = genre.strip()
+                            if clean_genre:
+                                genre_count[clean_genre] += 1
+                
+                # Create DataFrame from genre_count
+                genre_df = pd.DataFrame(list(genre_count.items()), columns=['Genre', 'Count'])
+                genre_df = genre_df.sort_values('Count', ascending=False)
+                
+                fig, ax = plt.subplots(figsize=(10, 6))
+                sns.barplot(x='Count', y='Genre', data=genre_df.head(15), palette="viridis", ax=ax)
+                ax.set_title("Top 15 Movie Genres")
+                st.pyplot(fig)
+
+            
+            with tab2:
+                st.subheader("⭐ Rating Insights")
+                fig, ax = plt.subplots(1, 2, figsize=(14, 5))
+                
+                # Rating histogram
+                sns.histplot(movies_df['vote_average'].dropna(), bins=20, kde=True, ax=ax[0], color='skyblue')
+                ax[0].set_title("Vote Average Distribution")
+                ax[0].set_xlabel("Rating")
+                ax[0].set_ylabel("Frequency")
+                
+                # Rating vs. Budget
+                budget_movies = movies_df[movies_df['budget'] > 0]
+                sample_size = min(500, len(budget_movies))
+                budget_sample = budget_movies.sample(sample_size)
+                sns.scatterplot(x='vote_average', y='budget', data=budget_sample, ax=ax[1], alpha=0.6)
+                ax[1].set_title("Rating vs. Budget")
+                ax[1].set_xlabel("Rating")
+                ax[1].set_ylabel("Budget (Millions)")
+                ax[1].set_yscale('log')
+                
+                st.pyplot(fig)
+            
+            with tab3:
+                st.subheader("☁️ Overview Word Cloud")
+                text = " ".join(movies_df['overview'].dropna().astype(str))
+                
+                if text:
+                    wordcloud = WordCloud(width=800, height=400, background_color='black').generate(text)
+                    fig, ax = plt.subplots(figsize=(12, 8))
+                    ax.imshow(wordcloud, interpolation='bilinear')
+                    ax.axis('off')
+                    st.pyplot(fig)
+                else:
+                    st.warning("No overview text available")
+        
+        # Tab 6 - Actor/Director Recommendations
+        with tabs[6]:
+            st.subheader("🎭 Find Movies by Actor or Director")
+            
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                search_name = st.text_input("Enter actor or director name", key="actor_director_search")
+            with col2:
+                num_results = st.slider("Number of results", 5, 50, 10, key="actor_num_slider")
+            
+            if search_name:
+                with st.spinner(f"Searching for movies with {search_name}..."):
+                    results = get_movies_by_actor_director(search_name)
+                
+                if not results.empty:
+                    st.success(f"🎬 Found {len(results)} movies featuring {search_name}")
+                    
+                    # Sort by popularity
+                    results = results.sort_values('popularity', ascending=False)
+                    
+                    # Pagination
+                    num_per_page = min(num_results, 10)
+                    page = st.number_input("Page", min_value=1, max_value=len(results)//num_per_page+1, value=1, key="actor_page")
+                    start = (page-1) * num_per_page
+                    end = start + num_per_page
+                    
+                    # Display results
+                    for _, row in results.iloc[start:end].iterrows():
+                        movie_card(row, context="actor", show_feedback=True)
+                else:
+                    st.warning(f"No movies found with {search_name}")
+        
+        
+        # Tab 7 - Hybrid Recommendations
+        with tabs[7]:
+            st.subheader("💡 Hybrid Recommendations")
+            st.info("Combines content-based filtering with collaborative filtering for personalized results")
+            
+            # Movie type selection
+            available_genres = precomputed['genre_set']
+            valid_defaults = ["Action", "Comedy"]
+            
+            selected_types = st.multiselect(
+                "Filter by movie types", 
+                available_genres, 
+                default=valid_defaults, 
+                key="hybrid_type_filter"
+            )
+            
+            # Optional movie search
+            movie_search = st.text_input("🎬 Enter a movie name (optional)", key="hybrid_movie_search", placeholder="Type a movie name...")
+            
+            # Actor/Director filter
+            actor_director = st.text_input("👤 Filter by actor or director (optional)", key="hybrid_actor_director")
+            
+            # Mood filter
+            mood_options = ["Happy 😊", "Exciting 🚀", "Romantic 💕", "Thrilling 😱", "Thoughtful 🤔", "Calm 😌"]
+            mood = st.selectbox("😊 Filter by mood (optional)", ["None"] + mood_options, key="hybrid_mood")
+            mood_mapping = {
+                "Happy 😊": "happy",
+                "Exciting 🚀": "exciting",
+                "Romantic 💕": "romantic",
+                "Thrilling 😱": "thrilling",
+                "Thoughtful 🤔": "thoughtful",
+                "Calm 😌": "calm"
+            }
+            mood_value = mood_mapping.get(mood, None)
+            
+            # Sorting options
+            col1, col2 = st.columns(2)
+            with col1:
+                sort_by = st.radio("Prioritize", ["Latest", "Oldest"], horizontal=True, key="hybrid_sort")
+            with col2:
+                top_n = st.slider("🔢 Number of recommendations", 5, 20, 10, key="hybrid_num_slider")
+
+            if st.button("Generate Recommendations", key="hybrid_btn", use_container_width=True):
+                with st.spinner("Analyzing patterns..."):
+                    time.sleep(0.5)
+                    
+                    # Improved user ID generation
+                    user_id = abs(hash(st.session_state.username)) % 10000
+                    
+                    # Determine what to recommend
+                    recommendation_basis = ""
+                    if movie_search:
+                        # User entered a movie
+                        movie_title = find_movie_by_title(movie_search, movies_df)
+                        if not movie_title:
+                            st.error("Movie not found. Please try another title.")
+                        else:
+                            results = advanced_hybrid_recommendation(
+                                movie_title,
+                                user_id,
+                                top_n,
+                                selected_types,
+                                "latest" if sort_by == "Latest" else "oldest",
+                                actor_director,
+                                mood_value
+                            )
+                            
+                            recommendation_basis = f"Because you liked **{movie_title}**"
+                    else:
+                        # No movie entered - use user preferences or popular movies
+                        results = advanced_hybrid_recommendation(
+                            None,
+                            user_id,
+                            top_n,
+                            selected_types,
+                            "latest" if sort_by == "Latest" else "oldest",
+                            actor_director,
+                            mood_value
+                        )
+                            
+                        if st.session_state.user_preferences.get('liked_movies', []):
+                            # Get top 3 preferred genres
+                            top_genres = get_user_preferred_genres()
+                            if top_genres:
+                                genres_str = ", ".join(top_genres)
+                                recommendation_basis = f"Based on your preferences for **{genres_str}** genres"
+                            else:
+                                recommendation_basis = "Based on your movie preferences"
+                        else:
+                            recommendation_basis = "Popular movies you might enjoy"
+                    
+                    st.session_state.hybrid_recs = results
+
+                    if not results.empty:
+                        # Show recommendation context
+                        st.subheader(f"🌟 Recommendations {recommendation_basis}")
+                        
+                        # Show recommendations
+                        for _, row in results.iterrows():
+                            movie_card(row, context="hybrid")
+                    else:
+                        st.warning("⚠️ No recommendations found matching your criteria")
+
+        # Tab 8 - Deep Learning
+        with tabs[8]:
+            st.subheader("🤖 Deep Learning Recommendations")
+            st.info("Personalized recommendations based on your taste profile")
+            
+            # Show user preferences context
+            if st.session_state.user_preferences.get('liked_movies', []):
+                top_genres = get_user_preferred_genres()
+                if top_genres:
+                    st.write(f"🎯 Based on your preferences for: **{', '.join(top_genres)}**")
+            
+            # Train DL model on button click
+            if st.button("Generate Personalized Recommendations", key="dl_btn", use_container_width=True):
+                try:
+                    # Create user ID from username
+                    username = st.session_state.username
+                    user_id = abs(hash(username)) % 10000
+                    
+                    # Get all movie IDs
+                    all_movie_ids = movies_df['id'].tolist()
+                    
+                    # Predict ratings
+                    predictions = []
+                    for idx, movie_id in enumerate(all_movie_ids):
+                        pred = dl_model.predict(user_id, movie_id)
+                        predictions.append((movie_id, pred.est))
+                    
+                    # Sort predictions
+                    predictions.sort(key=lambda x: x[1], reverse=True)
+                    top_movie_ids = [mid for mid, _ in predictions[:10]]
+                    recs_df = movies_df[movies_df['id'].isin(top_movie_ids)]
+                    
+                    st.session_state.dl_recs = recs_df
+
+                    st.subheader("🌟 Personalized For You")
+                    if not recs_df.empty:
+                        # Show recommendation context
+                        liked_movies = st.session_state.user_preferences.get('liked_movies', [])
+                        if liked_movies:
+                            st.write(f"✨ Based on your likes: **{', '.join(liked_movies[:3])}**")
+                        
+                        # Show recommendations
+                        for i, row in recs_df.iterrows():
+                            unique_index = f"{i}_{uuid.uuid4().hex[:6]}"
+                            movie_card(row, context="dl", index=unique_index)
+                            if "username" in st.session_state:
+                                log_event(username, row['title'], "recommended")
+                    else:
+                        st.warning("No recommendations found. Try rating more movies.")
+
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
         # Tab 9 - Profile
         with tabs[9]:
             st.subheader(f"👤 {st.session_state.username}'s Profile")
@@ -1050,13 +1563,44 @@ def main():
             st.markdown("### 🎭 Your Preferences")
             col1, col2 = st.columns(2)
             
-            with col1:
-                # (Content remains the same)
-                pass
-            
-            with col2:
-                # (Content remains the same)
-                pass
+    with col1:
+        st.markdown("### 🔐 Login to Your Account")
+        login_username = st.text_input("Username", key="login_user")
+        login_password = st.text_input("Password", type="password", key="login_pass")
+        
+        if st.button("Login", key="login_btn", use_container_width=True):
+            if login_username == "Vic" and login_password == "Vik":
+                st.success("✅ Admin Logged In")
+                st.session_state.logged_in = True
+                st.session_state.username = login_username
+                save_login_activity(login_username)
+                initialize_user_profile(login_username)
+            elif validate_user(login_username, login_password):
+                st.success(f"✅ Welcome {login_username}")
+                st.session_state.logged_in = True
+                st.session_state.username = login_username
+                save_login_activity(login_username)
+                initialize_user_profile(login_username)
+            else:
+                st.error("❌ Invalid Credentials")
+    
+    with col2:
+        st.markdown("### 🎉 Create New Account")
+        reg_username = st.text_input("Username", key="reg_user")
+        reg_password = st.text_input("Password", type="password", key="reg_pass")
+        reg_confirm = st.text_input("Confirm Password", type="password", key="reg_confirm")
+        
+        if st.button("Register", key="reg_btn", use_container_width=True):
+            if reg_password != reg_confirm:
+                st.error("Passwords do not match")
+            elif register_user(reg_username, reg_password):
+                st.success("🎉 Signup successful. You are now logged in.")
+                st.session_state.logged_in = True
+                st.session_state.username = reg_username
+                save_login_activity(reg_username)
+                initialize_user_profile(reg_username)
+            else:
+                st.warning("⚠️ Username already exists. Try logging in.")
             
             # Logout button
             st.markdown("---")
@@ -1093,7 +1637,263 @@ def load_styles():
             line-height: 1.6;
         }
         
-        /* ... (rest of the CSS styles) ... */
+        h1, h2, h3, h4, h5, h6 {
+            color: var(--accent);
+        }
+        
+        a {
+            color: var(--secondary);
+            text-decoration: underline;
+        }
+        
+        /* Accessibility: Ensure proper contrast for all text */
+        .stTextInput>div>div>input, 
+        .stSelectbox>div>div>select,
+        .stTextArea>div>div>textarea {
+            color: #333 !important;
+            background-color: #fff !important;
+        }
+        
+        /* Glassmorphism effect for cards */
+        .glass-card {
+            background: linear-gradient(135deg, rgba(255, 107, 107, 0.15), rgba(78, 205, 196, 0.15));
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.36);
+            padding: 20px;
+            margin: 15px 0;
+        }
+        
+        .glass-card:hover {
+            transform: translateY(-5px);
+            border: 1px solid rgba(255, 190, 11, 0.4);
+        }
+        
+        /* Feature cards */
+        .feature-card {
+            background: linear-gradient(135deg, rgba(255, 107, 107, 0.2), rgba(78, 205, 196, 0.2));
+            border-radius: 16px;
+            padding: 25px;
+            margin: 15px 0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .feature-card:hover {
+            transform: scale(1.02);
+        }
+        
+        /* Gradient buttons */
+        .stButton>button {
+            background: linear-gradient(45deg, var(--primary), var(--accent)) !important;
+            color: #1a1a2e !important;
+            border: none !important;
+            border-radius: 50px !important;
+            padding: 10px 25px !important;
+            font-weight: 600 !important;
+            text-transform: uppercase;
+            letter-spacing: 1px !important;
+            transition: all 0.3s ease !important;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2) !important;
+            width: 100%;
+        }
+        
+        .stButton>button:hover {
+            transform: translateY(-3px) !important;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3) !important;
+            background: linear-gradient(45deg, var(--accent), var(--primary)) !important;
+        }
+        
+        /* Tabs styling */
+        .stTabs [data-baseweb="tab"] {
+            background-color: transparent;
+            padding: 15px 25px;
+            margin: 0 5px;
+            border-radius: 12px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .stTabs [data-baseweb="tab"]:hover {
+            background: rgba(30, 30, 30, 0.5);
+            transform: translateY(-3px);
+        }
+        
+        .stTabs [aria-selected="true"] {
+            background: linear-gradient(45deg, var(--primary), var(--accent)) !important;
+            color: #1a1a2e !important;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25) !important;
+            border: none !important;
+        }
+        
+        /* Input fields */
+        .stTextInput>div>div>input, 
+        .stSelectbox>div>div>select,
+        .stTextArea>div>div>textarea {
+            background: rgba(30, 30, 46, 0.6) !important;
+            color: var(--text) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border-radius: 12px !important;
+            padding: 12px 15px !important;
+            transition: all 0.3s ease;
+        }
+        
+        .stTextInput>div>div>input:focus, 
+        .stSelectbox>div>div>select:focus,
+        .stTextArea>div>div>textarea:focus {
+            border: 1px solid var(--accent) !important;
+            box-shadow: 0 0 10px rgba(255, 190, 11, 0.3);
+        }
+        
+        /* Custom movie card */
+        .movie-card {
+            background: var(--card);
+            border-radius: 16px;
+            padding: 20px;
+            margin: 15px 0;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            border-left: 4px solid var(--accent);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .movie-card:before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+        }
+        
+        .movie-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(255, 107, 107, 0.4);
+        }
+        
+        .tag {
+            display: inline-block;
+            background: rgba(78, 205, 196, 0.2);
+            border-radius: 20px;
+            padding: 6px 15px;
+            margin-right: 8px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+            color: var(--text);
+            border: 1px solid rgba(78, 205, 196, 0.3);
+        }
+        
+        .tag-bollywood {
+            background: linear-gradient(135deg, #FFD700, #FFA500) !important;
+            color: #000 !important;
+            border: 1px solid #FF8C00 !important;
+        }
+        
+        .tag-webseries {
+            background: linear-gradient(135deg, #00FF7F, #00CED1) !important;
+            color: #000 !important;
+            border: 1px solid #008B8B !important;
+        }
+        
+        .tag-seasons {
+            background: linear-gradient(135deg, #1E90FF, #4169E1) !important;
+            color: #fff !important;
+            border: 1px solid #0000CD !important;
+        }
+        
+        .tag-genre {
+            background: linear-gradient(135deg, #FF69B4, #FF1493) !important;
+            color: #fff !important;
+            border: 1px solid #C71585 !important;
+        }
+        
+        .similarity-bar {
+            height: 8px;
+            background: linear-gradient(90deg, var(--secondary), var(--accent));
+            border-radius: 4px;
+            margin: 12px 0;
+        }
+        
+        /* Neon title */
+        .neon-title {
+            text-shadow: 0 0 10px var(--primary), 
+                         0 0 20px var(--primary), 
+                         0 0 30px var(--accent);
+        }
+        
+        /* Animated background */
+        .animated-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            background: linear-gradient(-45deg, #0f0c29, #302b63, #24243e, #1e1e1e);
+            background-size: 400% 400%;
+            animation: gradientBG 15s ease infinite;
+        }
+        
+        @keyframes gradientBG {
+            0% { background-position: 0% 50% }
+            50% { background-position: 100% 50% }
+            100% { background-position: 0% 50% }
+        }
+        
+        /* 3D Poster Effects */
+        .poster-container {
+            transition: transform 0.5s ease;
+            transform-style: preserve-3d;
+            perspective: 1000px;
+            margin-bottom: 15px;
+        }
+        
+        .poster-container:hover {
+            transform: perspective(1000px) rotateY(10deg) rotateX(5deg) translateZ(30px);
+        }
+        
+        .poster-img {
+            width: 100%;
+            border-radius: 10px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+        }
+        
+        /* Responsive adjustments */
+        @media only screen and (max-width: 768px) {
+            .stTabs [data-baseweb="tab"] {
+                padding: 12px 15px;
+                margin: 5px;
+                font-size: 12px;
+            }
+            
+            .movie-card {
+                padding: 15px;
+            }
+            
+            .stButton>button {
+                padding: 8px 15px !important;
+                font-size: 12px !important;
+            }
+        }
+        
+        /* Animation for all sections */
+        .section-animation {
+            animation: sectionFadeIn 1s ease forwards;
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        
+        @keyframes sectionFadeIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
         
         /* High contrast mode for accessibility */
         .high-contrast {
