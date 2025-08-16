@@ -690,10 +690,14 @@ def advanced_hybrid_recommendation(title=None, user_id=None, top_n=10, selected_
             if st.session_state.user_vector is not None and not np.all(st.session_state.user_vector == 0):
                 # Search for similar movies to user vector
                 query_vector = st.session_state.user_vector.reshape(1, -1)
-                _, indices = precomputed['faiss_index'].search(query_vector, top_n*3)
+                distances, indices = precomputed['faiss_index'].search(query_vector, top_n*3)
                 
                 # Get movie details
                 results = movies_df.iloc[indices[0]]
+                
+                # Calculate similarity scores (1 - normalized distance)
+                max_distance = distances[0].max()
+                results['similarity'] = 1 - (distances[0] / max_distance)
                 
                 # Apply genre filter
                 if selected_genres:
@@ -810,8 +814,13 @@ def get_personalized_recommendations(top_n=5):
             # Create a synthetic "favorite movie" based on user preferences
             user_vector = st.session_state.user_vector
             query_vector = user_vector.reshape(1, -1)
-            _, indices = precomputed['faiss_index'].search(query_vector, top_n*2)
+            distances, indices = precomputed['faiss_index'].search(query_vector, top_n*2)
             results = movies_df.iloc[indices[0]]
+            
+            # Calculate similarity scores (1 - normalized distance)
+            max_distance = distances[0].max()
+            results['similarity'] = 1 - (distances[0] / max_distance)
+            results = results.sort_values('similarity', ascending=False)
         else:
             # Use preferred genres and other preferences
             preferred_genres = st.session_state.user_preferences.get('preferred_genres', [])
@@ -830,7 +839,6 @@ def get_personalized_recommendations(top_n=5):
             
             # Filter by preferred era
             if preferred_era != "Any":
-                current_year = datetime.now().year
                 if preferred_era == "Recent (2010-Now)":
                     results = results[results['release_date'] >= "2010-01-01"]
                 elif preferred_era == "Classic (Pre-2000)":
@@ -875,30 +883,34 @@ def update_user_preference(movie_id, action):
             if movie_title not in st.session_state.user_preferences['liked_movies']:
                 st.session_state.user_preferences['liked_movies'].append(movie_title)
                 
+            # Update user vector - more significant impact for likes
+            movie_idx = movies_df.index[movies_df['id'] == movie_id].tolist()[0]
+            movie_embedding = st.session_state.cached_data[2]['embeddings'][movie_idx]
+            
+            if st.session_state.user_vector is None:
+                st.session_state.user_vector = movie_embedding
+            else:
+                st.session_state.user_vector = st.session_state.user_vector * 0.5 + movie_embedding * 0.5
+                
         elif action == 'dislike':
             if movie_title in st.session_state.user_preferences['liked_movies']:
                 st.session_state.user_preferences['liked_movies'].remove(movie_title)
             if movie_title not in st.session_state.user_preferences['disliked_movies']:
                 st.session_state.user_preferences['disliked_movies'].append(movie_title)
-        
-        # Update user vector
-        match = movies_df[movies_df['id'] == movie_id]
-        if not match.empty:
-            movie_idx = match.index[0]
+            
+            # Update user vector - less significant impact for dislikes
+            movie_idx = movies_df.index[movies_df['id'] == movie_id].tolist()[0]
             movie_embedding = st.session_state.cached_data[2]['embeddings'][movie_idx]
             
-            if action == 'like':
-                if st.session_state.user_vector is None:
-                    st.session_state.user_vector = movie_embedding
-                else:
-                    st.session_state.user_vector = st.session_state.user_vector * 0.7 + movie_embedding * 0.3
-            elif action == 'dislike':
-                if st.session_state.user_vector is not None:
-                    st.session_state.user_vector = st.session_state.user_vector * 0.9 - movie_embedding * 0.1
+            if st.session_state.user_vector is not None:
+                st.session_state.user_vector = st.session_state.user_vector * 0.9 - movie_embedding * 0.1
         
         # Save updated profile
         save_user_profile(st.session_state.username)
         log_event(st.session_state.username, movie_title, action)
+        
+        # Force UI refresh to show updated recommendations
+        st.rerun()
     except Exception as e:
         st.error(f"Error updating preference: {str(e)}")
 
@@ -941,7 +953,7 @@ def save_user_taste_preferences():
 # =========================================
 # MODULE 7: UI COMPONENTS
 # =========================================
-def movie_card(movie, show_feedback=True, context="default", index=0, similarity=None):
+def movie_card(movie, show_feedback=True, context="default", index=0):
     """Display movie information in a styled card"""
     try:
         with st.container():
@@ -986,7 +998,8 @@ def movie_card(movie, show_feedback=True, context="default", index=0, similarity
                     st.markdown(f"📺 **Seasons:** {movie.get('seasons', 'N/A')} | **Episodes:** {movie.get('episodes', 'N/A')}")
                 
                 # Display similarity bar if available
-                if similarity is not None:
+                if 'similarity' in movie:
+                    similarity = movie['similarity']
                     st.markdown(f"<div class='similarity-bar' style='width: {similarity*100}%'></div>", unsafe_allow_html=True)
                     st.caption(f"Match: {similarity*100:.1f}%")
                 
@@ -1007,22 +1020,18 @@ def movie_card(movie, show_feedback=True, context="default", index=0, similarity
                     with c1:
                         if st.button("👍 Like", key=unique_key_like, use_container_width=True):
                             update_user_preference(movie['id'], 'like')
-                            st.rerun()
                     with c2:
                         if st.button("👎 Dislike", key=unique_key_dislike, use_container_width=True):
                             update_user_preference(movie['id'], 'dislike')
-                            st.rerun()
                     with c3:
                         # Safely access watchlist with default
                         watchlist = st.session_state.user_preferences.get('watchlist', [])
                         if movie['title'] in watchlist:
                             if st.button("❌ Remove Watchlist", key=unique_key_watchlist, use_container_width=True):
                                 update_watchlist(movie['id'], 'remove')
-                                st.rerun()
                         else:
                             if st.button("➕ Add to Watchlist", key=unique_key_watchlist, use_container_width=True):
                                 update_watchlist(movie['id'], 'add')
-                                st.rerun()
 
             st.markdown("</div>", unsafe_allow_html=True)
     except Exception as e:
