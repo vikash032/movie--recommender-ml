@@ -82,6 +82,678 @@ def configure_page():
         page_icon="🎥", 
         initial_sidebar_state="expanded"
     )
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
+# Add custom CSS for modern UI
+CUSTOM_CSS = """
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
+    
+    :root {
+        --primary: #1a2a6c;
+        --secondary: #0a5f38;
+        --accent: #00c853;
+        --accent2: #00b8d4;
+        --dark: #0a0f1f;
+        --darker: #050916;
+        --light: #f8f9fa;
+        --success: #00c853;
+        --danger: #ff5252;
+        --warning: #ffab00;
+        --info: #2962ff;
+        --card-bg: rgba(255, 255, 255, 0.9);
+        --card-border: rgba(0, 0, 0, 0.1);
+        --vibrant-blue: rgba(70, 130, 180, 0.8);
+        --vibrant-green: rgba(50, 205, 50, 0.8);
+        --vibrant-orange: rgba(255, 140, 0, 0.8);
+        --vibrant-red: rgba(220, 20, 60, 0.8);
+        --vibrant-pink: rgba(255, 20, 147, 0.8);
+        --vibrant-cyan: rgba(0, 255, 255, 0.8);
+        --vibrant-teal: rgba(0, 150, 136, 0.8);
+    }
+    
+    * {
+        font-family: 'Montserrat', sans-serif;
+    }
+    
+    body {
+        background: linear-gradient(135deg, var(--darker), var(--dark));
+        background-size: 400% 400%;
+        animation: gradientBG 15s ease infinite;
+        color: var(--light) !important;
+    }
+    
+    @keyframes gradientBG {
+        0% { background-position: 0% 50% }
+        50% { background-position: 100% 50% }
+        100% { background-position: 0% 50% }
+    }
+    
+    .header { 
+        font-size: 3rem; 
+        font-weight: 800; 
+        background: linear-gradient(90deg, var(--accent), var(--accent2));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-align: center;
+        margin-bottom: 20px;
+        text-shadow: 0 0 20px rgba(0, 200, 83, 0.3);
+        letter-spacing: 1px;
+        animation: glow 1.5s ease-in-out infinite alternate;
+    }
+    
+    .subheader {
+        font-size: 1.8rem;
+        font-weight: 700;
+        background: linear-gradient(90deg, var(--accent), var(--accent2));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        border-bottom: 3px solid var(--accent);
+        padding-bottom: 10px;
+        margin-top: 20px;
+        margin-bottom: 25px;
+    }
+    
+    .metric-card {
+        background: var(--vibrant-teal);
+        border-radius: 15px;
+        padding: 20px;
+        margin-bottom: 20px;
+        border: 1px solid var(--card-border);
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+        transition: all 0.4s ease;
+        backdrop-filter: blur(10px);
+        position: relative;
+        overflow: hidden;
+        color: white;
+        z-index: 1;
+    }
+    
+    .metric-card:hover {
+        transform: translateY(-10px);
+        box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+        border: 1px solid var(--accent);
+    }
+    
+    .metric-card::before {
+        content: '';
+        position: absolute;
+        top: -2px;
+        left: -2px;
+        right: -2px;
+        bottom: -2px;
+        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
+        z-index: -1;
+        filter: blur(5px);
+        animation: glowing 3s ease-in-out infinite alternate;
+        background-size: 400% 400%;
+    }
+    
+    @keyframes glowing {
+        0% { background-position: 0% 50%; opacity: 0.5; }
+        100% { background-position: 100% 50%; opacity: 0.8; }
+    }
+    
+    .stButton>button {
+        background: linear-gradient(135deg, var(--primary), var(--secondary)) !important;
+        color: white !important;
+        border-radius: 30px !important;
+        font-weight: 600 !important;
+        padding: 10px 25px !important;
+        border: none !important;
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        transition: all 0.3s ease;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .stButton>button::before {
+        content: '';
+        position: absolute;
+        top: -2px;
+        left: -2px;
+        right: -2px;
+        bottom: -2px;
+        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
+        z-index: -1;
+        filter: blur(5px);
+        animation: glowing 3s ease-in-out infinite alternate;
+        background-size: 400% 400%;
+    }
+    
+    .stButton>button:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 20px rgba(0, 200, 83, 0.4);
+    }
+    
+    .news-item {
+        padding: 20px;
+        margin-bottom: 20px;
+        border-radius: 12px;
+        font-size: 1rem;
+        font-weight: 500;
+        background: var(--vibrant-green);
+        border: 1px solid var(--card-border);
+        transition: all 0.3s ease;
+        backdrop-filter: blur(10px);
+        animation: fadeIn 0.6s ease-out;
+        position: relative;
+        overflow: hidden;
+        z-index: 1;
+        color: black;
+    }
+    
+    .news-item::before {
+        content: '';
+        position: absolute;
+        top: -2px;
+        left: -2px;
+        right: -2px;
+        bottom: -2px;
+        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
+        z-index: -1;
+        filter: blur(5px);
+        animation: glowing 3s ease-in-out infinite alternate;
+        background-size: 400% 400%;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .news-item:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 12px 25px rgba(0, 0, 0, 0.2);
+    }
+    
+    .positive {
+        border-left: 6px solid var(--success);
+        background: linear-gradient(135deg, rgba(76, 175, 80, 0.3), var(--vibrant-green));
+    }
+    
+    .negative {
+        border-left: 6px solid var(--danger);
+        background: linear-gradient(135deg, rgba(244, 67, 54, 0.3), var(--vibrant-green));
+    }
+    
+    .neutral {
+        border-left: 6px solid var(--info);
+        background: linear-gradient(135deg, rgba(41, 98, 255, 0.3), var(--vibrant-green));
+    }
+    
+    .news-item a {
+        color: #1a2a6c !important;
+        font-weight: bold;
+        text-decoration: none;
+        transition: all 0.3s ease;
+    }
+    
+    .news-item a:hover {
+        color: #0a5f38 !important;
+        text-decoration: underline;
+    }
+    
+    .feature-card {
+        background: var(--vibrant-teal);
+        border-radius: 15px;
+        padding: 25px;
+        margin: 20px 0;
+        border: 1px solid var(--card-border);
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        transition: all 0.4s ease;
+        backdrop-filter: blur(10px);
+        animation: cardAppear 0.8s ease-out;
+        color: white;
+        position: relative;
+        overflow: hidden;
+        z-index: 1;
+    }
+    
+    .feature-card::before {
+        content: '';
+        position: absolute;
+        top: -2px;
+        left: -2px;
+        right: -2px;
+        bottom: -2px;
+        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
+        z-index: -1;
+        filter: blur(5px);
+        animation: glowing 3s ease-in-out infinite alternate;
+        background-size: 400% 400%;
+    }
+    
+    @keyframes cardAppear {
+        0% { opacity: 0; transform: scale(0.95); }
+        100% { opacity: 1; transform: scale(1); }
+    }
+    
+    .feature-card:hover {
+        transform: translateY(-10px) scale(1.02);
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
+        border: 1px solid var(--accent);
+    }
+    
+    .feature-card h3 {
+        color: white;
+        font-size: 1.8rem;
+        font-weight: 700;
+        margin-bottom: 15px;
+        border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+        padding-bottom: 10px;
+    }
+    
+    .feature-card h4 {
+        color: white;
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-top: 20px;
+        margin-bottom: 15px;
+    }
+    
+    .feature-card ul {
+        padding-left: 20px;
+        margin-bottom: 15px;
+    }
+    
+    .feature-card li {
+        margin-bottom: 10px;
+        position: relative;
+        padding-left: 20px;
+        color: white;
+    }
+    
+    .feature-card li::before {
+        content: '•';
+        color: white;
+        position: absolute;
+        left: 0;
+        font-size: 1.5rem;
+    }
+    
+    .gauge {
+        text-align: center;
+        padding: 20px;
+        border-radius: 15px;
+        background: linear-gradient(90deg, var(--danger) 0%, var(--warning) 50%, var(--success) 100%);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+        margin: 20px 0;
+        animation: pulse 2s infinite;
+        position: relative;
+        overflow: hidden;
+        z-index: 1;
+    }
+    
+    .gauge::before {
+        content: '';
+        position: absolute;
+        top: -2px;
+        left: -2px;
+        right: -2px;
+        bottom: -2px;
+        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
+        z-index: -1;
+        filter: blur(5px);
+        animation: glowing 3s ease-in-out infinite alternate;
+        background-size: 400% 400%;
+    }
+    
+    @keyframes pulse {
+        0% { box-shadow: 0 0 0 0 rgba(0, 200, 83, 0.4); }
+        70% { box-shadow: 0 0 0 15px rgba(0, 200, 83, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(0, 200, 83, 0); }
+    }
+    
+    .gauge-value {
+        font-size: 2.5rem;
+        font-weight: 800;
+        color: var(--accent);
+        text-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        margin: 10px 0;
+    }
+    
+    .stTabs [role="tablist"] {
+        background: rgba(19, 28, 58, 0.8) !important;
+        backdrop-filter: blur(10px);
+        border-radius: 15px;
+        padding: 10px;
+        margin-bottom: 30px;
+        border: 1px solid var(--card-border);
+        position: relative;
+        overflow: hidden;
+        z-index: 1;
+    }
+    
+    .stTabs [role="tablist"]::before {
+        content: '';
+        position: absolute;
+        top: -2px;
+        left: -2px;
+        right: -2px;
+        bottom: -2px;
+        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
+        z-index: -1;
+        filter: blur(5px);
+        animation: glowing 3s ease-in-out infinite alternate;
+        background-size: 400% 400%;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, var(--primary), var(--secondary)) !important;
+        color: white !important;
+        font-weight: 600;
+        border-radius: 12px !important;
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    }
+    
+    .stTabs [role="tab"] {
+        color: var(--light) !important;
+        padding: 10px 20px !important;
+        border-radius: 12px !important;
+        transition: all 0.3s ease;
+    }
+    
+    .stTabs [role="tab"]:hover {
+        background: rgba(0, 200, 83, 0.1) !important;
+    }
+    
+    .ai-response {
+        background: linear-gradient(135deg, var(--vibrant-teal), var(--vibrant-cyan));
+        padding: 25px;
+        border-radius: 15px;
+        margin-top: 20px;
+        border-left: 4px solid var(--accent);
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(10px);
+        animation: fadeIn 0.8s ease-out;
+        position: relative;
+        overflow: hidden;
+        z-index: 1;
+        color: white;
+    }
+    
+    .ai-response::before {
+        content: '';
+        position: absolute;
+        top: -2px;
+        left: -2px;
+        right: -2px;
+        bottom: -2px;
+        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
+        z-index: -1;
+        filter: blur(5px);
+        animation: glowing 3s ease-in-out infinite alternate;
+        background-size: 400% 400%;
+    }
+    
+    .strategy-card {
+        background: var(--vibrant-teal);
+        border-radius: 15px;
+        padding: 20px;
+        margin: 15px 0;
+        cursor: pointer;
+        transition: all 0.4s ease;
+        border: 1px solid var(--card-border);
+        backdrop-filter: blur(10px);
+        position: relative;
+        overflow: hidden;
+        z-index: 1;
+        color: var(--accent);
+    }
+    
+    .strategy-card::before {
+        content: '';
+        position: absolute;
+        top: -2px;
+        left: -2px;
+        right: -2px;
+        bottom: -2px;
+        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
+        z-index: -1;
+        filter: blur(5px);
+        animation: glowing 3s ease-in-out infinite alternate;
+        background-size: 400% 400%;
+    }
+    
+    .strategy-card:hover {
+        transform: scale(1.03);
+        box-shadow: 0 12px 25px rgba(0, 0, 0, 0.4);
+        border: 1px solid var(--accent);
+    }
+    
+    .strategy-card h4 {
+        color: var(--accent);
+        font-size: 1.5rem;
+        margin-bottom: 15px;
+    }
+    
+    .macro-metric {
+        background: var(--vibrant-teal);
+        border-radius: 15px;
+        padding: 20px;
+        margin: 15px;
+        text-align: center;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--card-border);
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+        z-index: 1;
+        color: white;
+    }
+    
+    .macro-metric::before {
+        content: '';
+        position: absolute;
+        top: -2px;
+        left: -2px;
+        right: -2px;
+        bottom: -2px;
+        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
+        z-index: -1;
+        filter: blur(5px);
+        animation: glowing 3s ease-in-out infinite alternate;
+        background-size: 400% 400%;
+    }
+    
+    .macro-metric:hover {
+        transform: translateY(-8px);
+        box-shadow: 0 12px 25px rgba(0, 200, 83, 0.2);
+    }
+    
+    .macro-metric h5 {
+        color: white;
+        margin-bottom: 15px;
+        font-size: 1.2rem;
+        font-weight: 600;
+    }
+    
+    .options-payoff {
+        background: linear-gradient(135deg, var(--vibrant-teal), var(--vibrant-orange));
+        border-radius: 15px;
+        padding: 25px;
+        margin: 20px 0;
+        border: 1px solid var(--card-border);
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(10px);
+        position: relative;
+        overflow: hidden;
+        z-index: 1;
+    }
+    
+    .options-payoff::before {
+        content: '';
+        position: absolute;
+        top: -2px;
+        left: -2px;
+        right: -2px;
+        bottom: -2px;
+        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
+        z-index: -1;
+        filter: blur(5px);
+        animation: glowing 3s ease-in-out infinite alternate;
+        background-size: 400% 400%;
+    }
+    
+    .stAlert {
+        border-radius: 15px !important;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3) !important;
+        backdrop-filter: blur(10px) !important;
+        border: 1px solid var(--card-border) !important;
+        position: relative;
+        overflow: hidden;
+        z-index: 1;
+    }
+    
+    .stAlert::before {
+        content: '';
+        position: absolute;
+        top: -2px;
+        left: -2px;
+        right: -2px;
+        bottom: -2px;
+        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
+        z-index: -1;
+        filter: blur(5px);
+        animation: glowing 3s ease-in-out infinite alternate;
+        background-size: 400% 400%;
+    }
+    
+    .stSpinner > div {
+        background: linear-gradient(90deg, var(--accent), var(--accent2)) !important;
+    }
+    
+    .pulse {
+        animation: pulse 2s infinite;
+    }
+    
+    .glow-text {
+        text-shadow: 0 0 10px var(--accent), 0 0 20px var(--accent);
+        animation: glow 1.5s ease-in-out infinite alternate;
+    }
+    
+    @keyframes glow {
+        from { text-shadow: 0 0 5px var(--accent), 0 0 10px var(--accent); }
+        to { text-shadow: 0 0 15px var(--accent), 0 0 30px var(--accent); }
+    }
+    
+    /* Attention heatmap styling */
+    .attention-heatmap {
+        border-radius: 15px;
+        padding: 20px;
+        background: var(--vibrant-teal);
+        margin: 20px 0;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+    }
+    
+    .shap-plot {
+        border-radius: 15px;
+        padding: 20px;
+        background: var(--vibrant-teal);
+        margin: 20px 0;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+    }
+    
+    /* Movie card styling */
+    .movie-card {
+        background: var(--vibrant-teal);
+        border-radius: 15px;
+        padding: 20px;
+        margin: 15px 0;
+        border: 1px solid var(--card-border);
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+        transition: all 0.4s ease;
+        backdrop-filter: blur(10px);
+        position: relative;
+        overflow: hidden;
+        color: white;
+        z-index: 1;
+    }
+    
+    .movie-card::before {
+        content: '';
+        position: absolute;
+        top: -2px;
+        left: -2px;
+        right: -2px;
+        bottom: -2px;
+        background: linear-gradient(45deg, #1d976c, #93f9b9, #00b8d4, #0052d4);
+        z-index: -1;
+        filter: blur(5px);
+        animation: glowing 3s ease-in-out infinite alternate;
+        background-size: 400% 400%;
+    }
+    
+    .movie-card:hover {
+        transform: translateY(-10px);
+        box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+        border: 1px solid var(--accent);
+    }
+    
+    .poster-container {
+        border-radius: 15px;
+        overflow: hidden;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+        transition: all 0.4s ease;
+    }
+    
+    .poster-container:hover {
+        transform: scale(1.05);
+    }
+    
+    .poster-img {
+        width: 100%;
+        height: auto;
+        border-radius: 15px;
+    }
+    
+    .tag {
+        display: inline-block;
+        background: rgba(78, 205, 196, 0.2);
+        border-radius: 20px;
+        padding: 6px 15px;
+        margin-right: 8px;
+        margin-bottom: 8px;
+        font-size: 0.85rem;
+        color: white;
+        border: 1px solid rgba(78, 205, 196, 0.3);
+    }
+    
+    .tag-bollywood {
+        background: linear-gradient(135deg, #FFD700, #FFA500) !important;
+        color: #000 !important;
+        border: 1px solid #FF8C00 !important;
+    }
+    
+    .tag-webseries {
+        background: linear-gradient(135deg, #00FF7F, #00CED1) !important;
+        color: #000 !important;
+        border: 1px solid #008B8B !important;
+    }
+    
+    .tag-seasons {
+        background: linear-gradient(135deg, #1E90FF, #4169E1) !important;
+        color: #fff !important;
+        border: 1px solid #0000CD !important;
+    }
+    
+    .tag-genre {
+        background: linear-gradient(135deg, #FF69B4, #FF1493) !important;
+        color: #fff !important;
+        border: 1px solid #C71585 !important;
+    }
+    
+    .neon-title {
+        text-shadow: 0 0 10px var(--primary), 
+                    0 0 20px var(--primary), 
+                    0 0 30px var(--accent);
+    }
+</style>
+"""
 
 # =========================================
 # MODULE 2: UTILITIES & HELPER FUNCTIONS
@@ -954,7 +1626,7 @@ def save_user_taste_preferences():
 # MODULE 7: UI COMPONENTS
 # =========================================
 def movie_card(movie, show_feedback=True, context="default", index=0):
-    """Display movie information in a styled card"""
+    """Display movie information in a styled card with new UI"""
     try:
         with st.container():
             # Add type tags
@@ -966,7 +1638,7 @@ def movie_card(movie, show_feedback=True, context="default", index=0):
                 if 'seasons' in movie:
                     tags_html += f"<span class='tag tag-seasons'>{movie['seasons']} Seasons</span>"
             
-            st.markdown(f"<div class='movie-card section-animation'>", unsafe_allow_html=True)
+            st.markdown(f"<div class='movie-card'>", unsafe_allow_html=True)
             
             col1, col2 = st.columns([1, 3])
             with col1:
@@ -1176,14 +1848,14 @@ def render_home_tab():
         
         with col1:
             st.markdown("""
-            <div class="feature-card section-animation">
+            <div class="feature-card">
                 <h4>🔍 Smart Search</h4>
                 <p>Find movies by title, genre, or keywords</p>
             </div>
             """, unsafe_allow_html=True)
             
             st.markdown("""
-            <div class="feature-card section-animation">
+            <div class="feature-card">
                 <h4>🤖 AI Recommendations</h4>
                 <p>Deep learning models personalize suggestions</p>
             </div>
@@ -1191,14 +1863,14 @@ def render_home_tab():
             
         with col2:
             st.markdown("""
-            <div class="feature-card section-animation">
+            <div class="feature-card">
                 <h4>💡 Hybrid System</h4>
                 <p>Combines content-based and collaborative filtering</p>
             </div>
             """, unsafe_allow_html=True)
             
             st.markdown("""
-            <div class="feature-card section-animation">
+            <div class="feature-card">
                 <h4>📈 Visual Analytics</h4>
                 <p>Explore movie trends and genre distributions</p>
             </div>
@@ -1206,14 +1878,14 @@ def render_home_tab():
             
         with col3:
             st.markdown("""
-            <div class="feature-card section-animation">
+            <div class="feature-card">
                 <h4>👤 Personal Profile</h4>
                 <p>Track your liked/disliked movies</p>
             </div>
             """, unsafe_allow_html=True)
             
             st.markdown("""
-            <div class="feature-card section-animation">
+            <div class="feature-card">
                 <h4>🌱 Sustainability Focus</h4>
                 <p>Track your environmental impact</p>
             </div>
@@ -1836,9 +2508,15 @@ def main_app():
 
 def main():
     """Main application entry point"""
-    # High contrast mode toggle
-    if st.session_state.high_contrast:
-        st.markdown('<style>:root {--primary: #ff0000; --secondary: #00ffff; --accent: #ffff00; --background: #000000; --card: #111111; --text: #ffffff;}</style>', unsafe_allow_html=True)
+    # Configure page
+    configure_page()
+    
+    # Initialize session state
+    initialize_session_state()
+    
+    # Load deep learning model
+    global dl_model
+    dl_model = None
     
     if not st.session_state.logged_in:
         render_login_signup()
@@ -1852,7 +2530,6 @@ def main():
                     st.session_state.cached_data = (movies_df, ratings_df, precomputed)
             
             # Load deep learning model
-            global dl_model
             dl_model = train_dl_model()
             
             # Render main application
@@ -1861,319 +2538,7 @@ def main():
             st.error(f"Application error: {str(e)}")
 
 # =========================================
-# STYLESHEET
-# =========================================
-def load_styles():
-    """Load custom CSS styles"""
-    st.markdown("""
-    <style>
-        :root {
-            --primary: #ff6b6b;
-            --secondary: #4ecdc4;
-            --accent: #ffbe0b;
-            --background: #0f0c29;
-            --card: rgba(30, 30, 46, 0.8);
-            --text: #ffffff;
-            --text-secondary: #f0f0f0;
-        }
-        
-        /* Improved contrast for accessibility */
-        body, .main { 
-            background-color: var(--background);
-            color: var(--text);
-            font-family: 'Poppins', sans-serif;
-            overflow-x: hidden;
-            line-height: 1.6;
-        }
-        
-        h1, h2, h3, h4, h5, h6 {
-            color: var(--accent);
-        }
-        
-        a {
-            color: var(--secondary);
-            text-decoration: underline;
-        }
-        
-        /* Accessibility: Ensure proper contrast for all text */
-        .stTextInput>div>div>input, 
-        .stSelectbox>div>div>select,
-        .stTextArea>div>div>textarea {
-            color: #333 !important;
-            background-color: #fff !important;
-        }
-        
-        /* Glassmorphism effect for cards */
-        .glass-card {
-            background: linear-gradient(135deg, rgba(255, 107, 107, 0.15), rgba(78, 205, 196, 0.15));
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border-radius: 16px;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.36);
-            padding: 20px;
-            margin: 15px 0;
-        }
-        
-        .glass-card:hover {
-            transform: translateY(-5px);
-            border: 1px solid rgba(255, 190, 11, 0.4);
-        }
-        
-        /* Feature cards */
-        .feature-card {
-            background: linear-gradient(135deg, rgba(255, 107, 107, 0.2), rgba(78, 205, 196, 0.2));
-            border-radius: 16px;
-            padding: 25px;
-            margin: 15px 0;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .feature-card:hover {
-            transform: scale(1.02);
-        }
-        
-        /* Gradient buttons */
-        .stButton>button {
-            background: linear-gradient(45deg, var(--primary), var(--accent)) !important;
-            color: #1a1a2e !important;
-            border: none !important;
-            border-radius: 50px !important;
-            padding: 10px 25px !important;
-            font-weight: 600 !important;
-            text-transform: uppercase;
-            letter-spacing: 1px !important;
-            transition: all 0.3s ease !important;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2) !important;
-            width: 100%;
-        }
-        
-        .stButton>button:hover {
-            transform: translateY(-3px) !important;
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3) !important;
-            background: linear-gradient(45deg, var(--accent), var(--primary)) !important;
-        }
-        
-        /* Tabs styling */
-        .stTabs [data-baseweb="tab"] {
-            background-color: transparent;
-            padding: 15px 25px;
-            margin: 0 5px;
-            border-radius: 12px;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-            transition: all 0.3s ease;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .stTabs [data-baseweb="tab"]:hover {
-            background: rgba(30, 30, 30, 0.5);
-            transform: translateY(-3px);
-        }
-        
-        .stTabs [aria-selected="true"] {
-            background: linear-gradient(45deg, var(--primary), var(--accent)) !important;
-            color: #1a1a2e !important;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25) !important;
-            border: none !important;
-        }
-        
-        /* Input fields */
-        .stTextInput>div>div>input, 
-        .stSelectbox>div>div>select,
-        .stTextArea>div>div>textarea {
-            background: rgba(30, 30, 46, 0.6) !important;
-            color: var(--text) !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
-            border-radius: 12px !important;
-            padding: 12px 15px !important;
-            transition: all 0.3s ease;
-        }
-        
-        .stTextInput>div>div>input:focus, 
-        .stSelectbox>div>div>select:focus,
-        .stTextArea>div>div>textarea:focus {
-            border: 1px solid var(--accent) !important;
-            box-shadow: 0 0 10px rgba(255, 190, 11, 0.3);
-        }
-        
-        /* Custom movie card */
-        .movie-card {
-            background: var(--card);
-            border-radius: 16px;
-            padding: 20px;
-            margin: 15px 0;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            border-left: 4px solid var(--accent);
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .movie-card:before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: linear-gradient(90deg, var(--primary), var(--accent));
-        }
-        
-        .movie-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 12px 40px rgba(255, 107, 107, 0.4);
-        }
-        
-        .tag {
-            display: inline-block;
-            background: rgba(78, 205, 196, 0.2);
-            border-radius: 20px;
-            padding: 6px 15px;
-            margin-right: 8px;
-            margin-bottom: 8px;
-            font-size: 0.85rem;
-            color: var(--text);
-            border: 1px solid rgba(78, 205, 196, 0.3);
-        }
-        
-        .tag-bollywood {
-            background: linear-gradient(135deg, #FFD700, #FFA500) !important;
-            color: #000 !important;
-            border: 1px solid #FF8C00 !important;
-        }
-        
-        .tag-webseries {
-            background: linear-gradient(135deg, #00FF7F, #00CED1) !important;
-            color: #000 !important;
-            border: 1px solid #008B8B !important;
-        }
-        
-        .tag-seasons {
-            background: linear-gradient(135deg, #1E90FF, #4169E1) !important;
-            color: #fff !important;
-            border: 1px solid #0000CD !important;
-        }
-        
-        .tag-genre {
-            background: linear-gradient(135deg, #FF69B4, #FF1493) !important;
-            color: #fff !important;
-            border: 1px solid #C71585 !important;
-        }
-        
-        .similarity-bar {
-            height: 8px;
-            background: linear-gradient(90deg, var(--secondary), var(--accent));
-            border-radius: 4px;
-            margin: 12px 0;
-        }
-        
-        /* Neon title */
-        .neon-title {
-            text-shadow: 0 0 10px var(--primary), 
-                         0 0 20px var(--primary), 
-                         0 0 30px var(--accent);
-        }
-        
-        /* Animated background */
-        .animated-bg {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: -1;
-            background: linear-gradient(-45deg, #0f0c29, #302b63, #24243e, #1e1e1e);
-            background-size: 400% 400%;
-            animation: gradientBG 15s ease infinite;
-        }
-        
-        @keyframes gradientBG {
-            0% { background-position: 0% 50% }
-            50% { background-position: 100% 50% }
-            100% { background-position: 0% 50% }
-        }
-        
-        /* 3D Poster Effects */
-        .poster-container {
-            transition: transform 0.5s ease;
-            transform-style: preserve-3d;
-            perspective: 1000px;
-            margin-bottom: 15px;
-        }
-        
-        .poster-container:hover {
-            transform: perspective(1000px) rotateY(10deg) rotateX(5deg) translateZ(30px);
-        }
-        
-        .poster-img {
-            width: 100%;
-            border-radius: 10px;
-            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
-        }
-        
-        /* Responsive adjustments */
-        @media only screen and (max-width: 768px) {
-            .stTabs [data-baseweb="tab"] {
-                padding: 12px 15px;
-                margin: 5px;
-                font-size: 12px;
-            }
-            
-            .movie-card {
-                padding: 15px;
-            }
-            
-            .stButton>button {
-                padding: 8px 15px !important;
-                font-size: 12px !important;
-            }
-        }
-        
-        /* Animation for all sections */
-        .section-animation {
-            animation: sectionFadeIn 1s ease forwards;
-            opacity: 0;
-            transform: translateY(20px);
-        }
-        
-        @keyframes sectionFadeIn {
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        
-        /* High contrast mode for accessibility */
-        .high-contrast {
-            --primary: #ff0000;
-            --secondary: #00ffff;
-            --accent: #ffff00;
-            --background: #000000;
-            --card: #111111;
-            --text: #ffffff;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # Add animated background
-    st.markdown('<div class="animated-bg"></div>', unsafe_allow_html=True)
-
-# =========================================
 # APPLICATION ENTRY POINT
 # =========================================
 if __name__ == "__main__":
-    # Apply custom styles
-    load_styles()
-    
-    # Configure page
-    configure_page()
-    
-    # Initialize session state
-    initialize_session_state()
-    
-    # Load deep learning model
-    dl_model = None
-    
-    # Run main application
     main()
