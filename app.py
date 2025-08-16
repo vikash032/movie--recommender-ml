@@ -4,86 +4,7 @@ os.environ["STREAMLIT_DISABLE_WATCHDOG_WARNINGS"] = "1"
 os.environ["STREAMLIT_WATCH_FILES"] = "false"
 os.environ["PYTHONWARNINGS"] = "ignore"
 
-# ✅ Torch patch
-import torch
-try:
-    torch.classes.__path__ = []
-except Exception:
-    pass
-
-# =========================================
-# MODULE 1: CONFIGURATION & INITIALIZATION
-# =========================================
-import warnings
-import streamlit as st
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pickle
-import requests
-import faiss
-import time
-import uuid
-import re
-from datetime import datetime
-from wordcloud import WordCloud
-from collections import defaultdict, Counter
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sentence_transformers import SentenceTransformer
-
-# Suppress warnings
-warnings.filterwarnings('ignore')
-
-# Initialize session state
-def initialize_session_state():
-    if "logged_in" not in st.session_state:
-        st.session_state.logged_in = False
-    if "username" not in st.session_state:
-        st.session_state.username = ""
-    if "user_vector" not in st.session_state:
-        st.session_state.user_vector = None
-    if "selected_movie" not in st.session_state:
-        st.session_state.selected_movie = None
-    if "hybrid_recs" not in st.session_state:
-        st.session_state.hybrid_recs = None
-    if "content_recs" not in st.session_state:
-        st.session_state.content_recs = None
-    if "cached_data" not in st.session_state:
-        st.session_state.cached_data = None
-    if "high_contrast" not in st.session_state:
-        st.session_state.high_contrast = False
-    if "co2_savings" not in st.session_state:
-        st.session_state.co2_savings = 0.0
-    if "user_preferences_set" not in st.session_state:
-        st.session_state.user_preferences_set = False
-
-    # Define default user preferences structure
-    DEFAULT_USER_PREFERENCES = {
-        'liked_movies': [],
-        'disliked_movies': [],
-        'preferred_genres': [],
-        'watchlist': [],
-        'mood_preferences': [],
-        'preferred_era': "Any",
-        'preferred_actors': [],
-        'preferred_directors': []
-    }
-
-    if "user_preferences" not in st.session_state:
-        st.session_state.user_preferences = DEFAULT_USER_PREFERENCES.copy()
-
-# Configure Streamlit page
-def configure_page():
-    st.set_page_config(
-        page_title="🎬 Movie Recommender Pro", 
-        layout="wide", 
-        page_icon="🎥", 
-        initial_sidebar_state="expanded"
-    )
-    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
-
+# Add your custom CSS here at the VERY TOP
 # Add custom CSS for modern UI
 CUSTOM_CSS = """
 <style>
@@ -755,6 +676,86 @@ CUSTOM_CSS = """
 </style>
 """
 
+# ✅ Torch patch
+import torch
+try:
+    torch.classes.__path__ = []
+except Exception:
+    pass
+
+# =========================================
+# MODULE 1: CONFIGURATION & INITIALIZATION
+# =========================================
+import warnings
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pickle
+import requests
+import faiss
+import time
+import uuid
+import re
+from datetime import datetime
+from wordcloud import WordCloud
+from collections import defaultdict, Counter
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sentence_transformers import SentenceTransformer
+
+# Suppress warnings
+warnings.filterwarnings('ignore')
+
+# Initialize session state
+def initialize_session_state():
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+    if "username" not in st.session_state:
+        st.session_state.username = ""
+    if "user_vector" not in st.session_state:
+        st.session_state.user_vector = None
+    if "selected_movie" not in st.session_state:
+        st.session_state.selected_movie = None
+    if "hybrid_recs" not in st.session_state:
+        st.session_state.hybrid_recs = None
+    if "content_recs" not in st.session_state:
+        st.session_state.content_recs = None
+    if "cached_data" not in st.session_state:
+        st.session_state.cached_data = None
+    if "high_contrast" not in st.session_state:
+        st.session_state.high_contrast = False
+    if "co2_savings" not in st.session_state:
+        st.session_state.co2_savings = 0.0
+    if "user_preferences_set" not in st.session_state:
+        st.session_state.user_preferences_set = False
+
+    # Define default user preferences structure
+    DEFAULT_USER_PREFERENCES = {
+        'liked_movies': [],
+        'disliked_movies': [],
+        'preferred_genres': [],
+        'watchlist': [],
+        'mood_preferences': [],
+        'preferred_era': "Any",
+        'preferred_actors': [],
+        'preferred_directors': []
+    }
+
+    if "user_preferences" not in st.session_state:
+        st.session_state.user_preferences = DEFAULT_USER_PREFERENCES.copy()
+
+# Configure Streamlit page
+def configure_page():
+    st.set_page_config(
+        page_title="🎬 Movie Recommender Pro", 
+        layout="wide", 
+        page_icon="🎥", 
+        initial_sidebar_state="expanded"
+    )
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
 # =========================================
 # MODULE 2: UTILITIES & HELPER FUNCTIONS
 # =========================================
@@ -835,10 +836,14 @@ def find_movie_by_title(title, movies_df):
 # =========================================
 # MODULE 3: DATA LOADING & CACHING
 # =========================================
-@st.cache_resource
+@st.cache_resource(show_spinner=False)
 def load_model():
-    """Load and cache the sentence transformer model"""
-    return SentenceTransformer('all-MiniLM-L6-v2')
+    """Load and cache the sentence transformer model - simplified to avoid tokenization issues"""
+    try:
+        return SentenceTransformer('all-MiniLM-L6-v2')
+    except Exception as e:
+        st.error(f"Error loading model: {str(e)}")
+        return None
 
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def fetch_realtime_data(api_key):
