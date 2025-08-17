@@ -497,14 +497,10 @@ def load_data(api_key):
 
     # load ratings (safe)
     try:
-    ratings_df = pd.read_csv('ratings.csv')
+        ratings_df = pd.read_csv('ratings.csv')
     except Exception:
-    st.warning("ratings.csv not found or unreadable — continuing without ratings.")
-    ratings_df = pd.DataFrame(columns=['userId', 'movieId', 'rating', 'timestamp'])
-
-    
-    # Load ratings data
-    ratings_df = pd.read_csv('ratings.csv')
+        st.warning("ratings.csv not found or unreadable — continuing without ratings.")
+        ratings_df = pd.DataFrame(columns=['userId', 'movieId', 'rating', 'timestamp'])
     
     # Precompute TF-IDF and similarity
     tfidf = TfidfVectorizer(stop_words='english')
