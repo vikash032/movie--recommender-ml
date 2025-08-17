@@ -26,12 +26,17 @@ import faiss
 import time
 import uuid
 import re
+import logging
 from datetime import datetime
 from wordcloud import WordCloud
 from collections import defaultdict, Counter
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sentence_transformers import SentenceTransformer
+
+# Configure logging
+logging.basicConfig(filename='app_errors.log', level=logging.ERROR, 
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
@@ -58,6 +63,8 @@ def initialize_session_state():
         st.session_state.co2_savings = 0.0
     if "user_preferences_set" not in st.session_state:
         st.session_state.user_preferences_set = False
+    if "show_debug" not in st.session_state:
+        st.session_state.show_debug = False
 
     # Define default user preferences structure
     DEFAULT_USER_PREFERENCES = {
@@ -88,9 +95,13 @@ def configure_page():
 # =========================================
 def format_currency(amount):
     """Format currency amounts for display"""
-    if pd.isna(amount) or amount <= 0:
+    try:
+        if pd.isna(amount) or amount <= 0:
+            return "N/A"
+        return f"${amount:,.0f}"
+    except Exception as e:
+        logging.error(f"Error formatting currency: {str(e)}")
         return "N/A"
-    return f"${amount:,.0f}"
 
 def log_event(user, movie, action):
     """Log user events to CSV files"""
@@ -105,6 +116,7 @@ def log_event(user, movie, action):
         with open(log_file, 'a') as f:
             f.write(f"{datetime.now()},{movie},{action}\n")
     except Exception as e:
+        logging.error(f"Error logging event: {str(e)}")
         st.error(f"Error logging event: {str(e)}")
 
 def display_poster(poster_path, class_name="poster-container", width=200):
@@ -123,6 +135,7 @@ def display_poster(poster_path, class_name="poster-container", width=200):
             )
             return True
     except Exception as e:
+        logging.error(f"Error displaying poster: {str(e)}")
         st.error(f"Error displaying poster: {str(e)}")
     
     # Show placeholder if no poster found
@@ -155,10 +168,11 @@ def find_movie_by_title(title, movies_df):
         for t in all_titles:
             if title.lower() in t.lower():
                 return t
+        return None
     except Exception as e:
+        logging.error(f"Error finding movie: {str(e)}")
         st.error(f"Error finding movie: {str(e)}")
-    
-    return None
+        return None
 
 # =========================================
 # MODULE 3: DATA LOADING & CACHING
@@ -166,7 +180,12 @@ def find_movie_by_title(title, movies_df):
 @st.cache_resource
 def load_model():
     """Load and cache the sentence transformer model"""
-    return SentenceTransformer('all-MiniLM-L6-v2')
+    try:
+        return SentenceTransformer('all-MiniLM-L6-v2')
+    except Exception as e:
+        logging.error(f"Error loading model: {str(e)}")
+        st.error(f"Error loading model: {str(e)}")
+        return None
 
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def fetch_realtime_data(api_key):
@@ -195,6 +214,7 @@ def fetch_realtime_data(api_key):
             'web_series': web_series
         }
     except Exception as e:
+        logging.error(f"Error fetching real-time data: {str(e)}")
         st.error(f"Error fetching real-time data: {str(e)}")
         return {
             'trending': [],
@@ -231,11 +251,16 @@ def fetch_movie_details(movie_id, api_key):
         # Get poster path
         poster_path = data.get('poster_path', None)
         
+        # Handle missing overview
+        overview = data.get('overview', 'No overview available.')
+        if not overview or overview.strip() == "":
+            overview = "No overview available."
+        
         return {
             'id': movie_id,
             'title': data.get('title', 'Unknown Title'),
             'release_date': data.get('release_date', ''),
-            'overview': data.get('overview', 'No overview available.'),
+            'overview': overview,
             'vote_average': data.get('vote_average', 0),
             'vote_count': data.get('vote_count', 0),
             'popularity': data.get('popularity', 0),
@@ -247,6 +272,7 @@ def fetch_movie_details(movie_id, api_key):
             'original_language': data.get('original_language', 'en')
         }
     except Exception as e:
+        logging.error(f"Error fetching details for movie {movie_id}: {str(e)}")
         st.error(f"Error fetching details for movie {movie_id}: {str(e)}")
         return None
 
@@ -293,6 +319,7 @@ def fetch_popular_movies_by_year(years, api_key, movies_per_year=50):
             } for m in bollywood_movies])
             
         except Exception as e:
+            logging.error(f"Error fetching movies for {year}: {str(e)}")
             st.error(f"Error fetching movies for {year}: {str(e)}")
     
     return all_movies
@@ -341,6 +368,7 @@ def fetch_movies_by_actor(actor_name, api_key):
         return movies
         
     except Exception as e:
+        logging.error(f"Error fetching movies for {actor_name}: {str(e)}")
         st.error(f"Error fetching movies for {actor_name}: {str(e)}")
         return []
 
@@ -358,11 +386,16 @@ def fetch_popular_web_series(api_key, num_series=30):
             tv_url = f"https://api.themoviedb.org/3/tv/{series['id']}?api_key={api_key}"
             tv_data = requests.get(tv_url, timeout=10).json()
             
+            # Handle missing overview
+            overview = tv_data.get('overview', 'No overview available.')
+            if not overview or overview.strip() == "":
+                overview = "No overview available."
+            
             detailed_series.append({
                 'id': tv_data['id'],
                 'title': tv_data.get('name', 'Unknown'),
                 'release_date': tv_data.get('first_air_date', ''),
-                'overview': tv_data.get('overview', 'No overview available.'),
+                'overview': overview,
                 'vote_average': tv_data.get('vote_average', 0),
                 'vote_count': tv_data.get('vote_count', 0),
                 'popularity': tv_data.get('popularity', 0),
@@ -377,143 +410,149 @@ def fetch_popular_web_series(api_key, num_series=30):
         return detailed_series
         
     except Exception as e:
+        logging.error(f"Error fetching web series: {str(e)}")
         st.error(f"Error fetching web series: {str(e)}")
         return []
 
 @st.cache_data
 def load_data(api_key):
     """Load and cache movie data with progress tracking"""
-    # Show loading progress
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    status_text.text("Loading movie data... 0%")
-    
-    # Fetch popular movies by year (2000-2025) - increased count
-    years = list(range(2000, 2026))
-    movies_list = fetch_popular_movies_by_year(years, api_key, movies_per_year=50)
-    total_movies = len(movies_list)
-    
-    # Add movies for all requested actors/actresses
-    actors_list = [
-        "Shah Rukh Khan", "Salman Khan", "Aamir Khan", "Akshay Kumar", "Hrithik Roshan",
-        "Ranbir Kapoor", "Ranveer Singh", "Vicky Kaushal", "Shahid Kapoor", "Ayushmann Khurrana",
-        "Tiger Shroff", "Varun Dhawan", "Sidharth Malhotra", "Kartik Aaryan", "Rajkummar Rao",
-        "Pankaj Tripathi", "Nawazuddin Siddiqui", "Manoj Bajpayee", "Vikrant Massey", "Sunny Deol",
-        "Bobby Deol", "Arjun Kapoor", "Aditya Roy Kapur", "Emraan Hashmi", "Abhishek Bachchan",
-        "Farhan Akhtar", "John Abraham", "Sanjay Dutt", "Ajay Devgn", "Saif Ali Khan", "Prabhas",
-        "Deepika Padukone", "Alia Bhatt", "Katrina Kaif", "Kareena Kapoor Khan", "Priyanka Chopra Jonas",
-        "Kiara Advani", "Anushka Sharma", "Taapsee Pannu", "Janhvi Kapoor", "Sara Ali Khan",
-        "Kriti Sanon", "Bhumi Pednekar", "Shraddha Kapoor", "Parineeti Chopra", "Yami Gautam",
-        "Radhika Apte", "Mrunal Thakur", "Disha Patani", "Nushrratt Bharuccha", "Pooja Hegde",
-        "Sanya Malhotra", "Huma Qureshi", "Rani Mukerji", "Vidya Balan", "Sonam Kapoor",
-        "Nora Fatehi", "Tabu", "Kajol", "Aishwarya Rai Bachchan", "Triptii Dimri"
-    ]
-    
-    # Add actor movies
-    for i, actor in enumerate(actors_list):
-        actor_movies = fetch_movies_by_actor(actor, api_key)
-        movies_list.extend(actor_movies)
+    try:
+        # Show loading progress
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        status_text.text("Loading movie data... 0%")
         
-        # Update progress
-        progress = (i + 1) / len(actors_list) * 0.3
-        progress_bar.progress(progress)
-        status_text.text(f"Loading actor movies... {int(progress*100)}%")
-    
-    # Add web series
-    web_series = fetch_popular_web_series(api_key, num_series=30)
-    movies_list.extend([{
-        'id': s['id'],
-        'title': s['title'],
-        'release_date': s['release_date'],
-        'poster_path': s['poster_path'],
-        'is_bollywood': False,
-        'is_web_series': True,
-        'details': s
-    } for s in web_series])
-    
-    # Fetch details for each movie with progress
-    detailed_movies = []
-    for i, movie in enumerate(movies_list):
-        # For web series, we already have details
-        if movie.get('is_web_series', False):
-            detailed_movies.append(movie['details'])
-        else:
-            details = fetch_movie_details(movie['id'], api_key)
-            if details:
-                # Add Bollywood flag to details
-                details['is_bollywood'] = movie.get('is_bollywood', False)
-                details['is_web_series'] = False
-                detailed_movies.append(details)
+        # Fetch popular movies by year (2000-2025) - increased count
+        years = list(range(2000, 2026))
+        movies_list = fetch_popular_movies_by_year(years, api_key, movies_per_year=50)
+        total_movies = len(movies_list)
         
-        # Update progress every 5 movies
-        if i % 5 == 0:
-            progress = (i + 1) / len(movies_list) * 0.7 + 0.3
+        # Add movies for all requested actors/actresses
+        actors_list = [
+            "Shah Rukh Khan", "Salman Khan", "Aamir Khan", "Akshay Kumar", "Hrithik Roshan",
+            "Ranbir Kapoor", "Ranveer Singh", "Vicky Kaushal", "Shahid Kapoor", "Ayushmann Khurrana",
+            "Tiger Shroff", "Varun Dhawan", "Sidharth Malhotra", "Kartik Aaryan", "Rajkummar Rao",
+            "Pankaj Tripathi", "Nawazuddin Siddiqui", "Manoj Bajpayee", "Vikrant Massey", "Sunny Deol",
+            "Bobby Deol", "Arjun Kapoor", "Aditya Roy Kapur", "Emraan Hashmi", "Abhishek Bachchan",
+            "Farhan Akhtar", "John Abraham", "Sanjay Dutt", "Ajay Devgn", "Saif Ali Khan", "Prabhas",
+            "Deepika Padukone", "Alia Bhatt", "Katrina Kaif", "Kareena Kapoor Khan", "Priyanka Chopra Jonas",
+            "Kiara Advani", "Anushka Sharma", "Taapsee Pannu", "Janhvi Kapoor", "Sara Ali Khan",
+            "Kriti Sanon", "Bhumi Pednekar", "Shraddha Kapoor", "Parineeti Chopra", "Yami Gautam",
+            "Radhika Apte", "Mrunal Thakur", "Disha Patani", "Nushrratt Bharuccha", "Pooja Hegde",
+            "Sanya Malhotra", "Huma Qureshi", "Rani Mukerji", "Vidya Balan", "Sonam Kapoor",
+            "Nora Fatehi", "Tabu", "Kajol", "Aishwarya Rai Bachchan", "Triptii Dimri"
+        ]
+        
+        # Add actor movies
+        for i, actor in enumerate(actors_list):
+            actor_movies = fetch_movies_by_actor(actor, api_key)
+            movies_list.extend(actor_movies)
+            
+            # Update progress
+            progress = (i + 1) / len(actors_list) * 0.3
             progress_bar.progress(progress)
-            status_text.text(f"Loading movie data... {int(progress*100)}%")
-    
-    # Create DataFrame
-    movies_df = pd.DataFrame(detailed_movies)
-    
-    # Remove duplicates
-    movies_df = movies_df.drop_duplicates(subset=['id'])
-    
-    # Load ratings data
-    ratings_df = pd.read_csv('ratings.csv')
-    
-    # Precompute TF-IDF and similarity
-    tfidf = TfidfVectorizer(stop_words='english')
-    overviews = movies_df['overview'].fillna('').astype(str)
-    tfidf_matrix = tfidf.fit_transform(overviews)
-    cosine_sim = cosine_similarity(tfidf_matrix, tfidf_matrix)
-    indices = pd.Series(movies_df.index, index=movies_df['title']).drop_duplicates()
-    
-    # Generate embeddings
-    genres = movies_df['genres'].fillna('').astype(str)
-    embeddings = load_model().encode(genres.tolist(), show_progress_bar=False)
-    dim = embeddings.shape[1]
-    index = faiss.IndexFlatL2(dim)
-    index.add(np.array(embeddings))
-    
-    # Add weighted score
-    v = movies_df['vote_count'].fillna(0)
-    R = movies_df['vote_average'].fillna(0)
-    C = movies_df['vote_average'].mean()
-    m = movies_df['vote_count'].quantile(0.60)
-    movies_df['weighted_score'] = ((v / (v + m)) * R) + ((m / (v + m)) * C)
-    
-    # Create genre set
-    genre_set = set()
-    for genres in movies_df['genres']:
-        if isinstance(genres, str):
-            for genre in genres.split(', '):
-                genre_set.add(genre.strip())
-    
-    # Add Bollywood as a genre
-    genre_set.add("Bollywood")
-    genre_set.add("Web Series")
-    
-    # Remove unwanted genres
-    unwanted_genres = {
-        'Action & Adventure', 'Bollywood', 'Drama', 'kids', 'Music', 'News', 'Reality', 
-        'Western', 'Sci-Fi & Fantasy', 'TV Movie', 'Soap', 'Web Series', 'War', 'Talk'
-    }
-    genre_set = genre_set - unwanted_genres
-    
-    # Complete progress
-    progress_bar.progress(1.0)
-    status_text.text("Data loaded successfully!")
-    time.sleep(1)
-    progress_bar.empty()
-    status_text.empty()
-    
-    return movies_df, ratings_df, {
-        'tfidf_matrix': tfidf_matrix,
-        'cosine_sim': cosine_sim,
-        'indices': indices,
-        'embeddings': embeddings,
-        'faiss_index': index,
-        'genre_set': sorted(genre_set)
-    }
+            status_text.text(f"Loading actor movies... {int(progress*100)}%")
+        
+        # Add web series
+        web_series = fetch_popular_web_series(api_key, num_series=30)
+        movies_list.extend([{
+            'id': s['id'],
+            'title': s['title'],
+            'release_date': s['release_date'],
+            'poster_path': s['poster_path'],
+            'is_bollywood': False,
+            'is_web_series': True,
+            'details': s
+        } for s in web_series])
+        
+        # Fetch details for each movie with progress
+        detailed_movies = []
+        for i, movie in enumerate(movies_list):
+            # For web series, we already have details
+            if movie.get('is_web_series', False):
+                detailed_movies.append(movie['details'])
+            else:
+                details = fetch_movie_details(movie['id'], api_key)
+                if details:
+                    # Add Bollywood flag to details
+                    details['is_bollywood'] = movie.get('is_bollywood', False)
+                    details['is_web_series'] = False
+                    detailed_movies.append(details)
+            
+            # Update progress every 5 movies
+            if i % 5 == 0:
+                progress = (i + 1) / len(movies_list) * 0.7 + 0.3
+                progress_bar.progress(progress)
+                status_text.text(f"Loading movie data... {int(progress*100)}%")
+        
+        # Create DataFrame
+        movies_df = pd.DataFrame(detailed_movies)
+        
+        # Remove duplicates
+        movies_df = movies_df.drop_duplicates(subset=['id'])
+        
+        # Load ratings data
+        ratings_df = pd.read_csv('ratings.csv')
+        
+        # Precompute TF-IDF and similarity
+        tfidf = TfidfVectorizer(stop_words='english')
+        overviews = movies_df['overview'].fillna('').astype(str)
+        tfidf_matrix = tfidf.fit_transform(overviews)
+        cosine_sim = cosine_similarity(tfidf_matrix, tfidf_matrix)
+        indices = pd.Series(movies_df.index, index=movies_df['title']).drop_duplicates()
+        
+        # Generate embeddings
+        genres = movies_df['genres'].fillna('').astype(str)
+        embeddings = load_model().encode(genres.tolist(), show_progress_bar=False)
+        dim = embeddings.shape[1]
+        index = faiss.IndexFlatL2(dim)
+        index.add(np.array(embeddings))
+        
+        # Add weighted score
+        v = movies_df['vote_count'].fillna(0)
+        R = movies_df['vote_average'].fillna(0)
+        C = movies_df['vote_average'].mean()
+        m = movies_df['vote_count'].quantile(0.60)
+        movies_df['weighted_score'] = ((v / (v + m)) * R) + ((m / (v + m)) * C)
+        
+        # Create genre set
+        genre_set = set()
+        for genres in movies_df['genres']:
+            if isinstance(genres, str):
+                for genre in genres.split(', '):
+                    genre_set.add(genre.strip())
+        
+        # Add Bollywood as a genre
+        genre_set.add("Bollywood")
+        genre_set.add("Web Series")
+        
+        # Remove unwanted genres
+        unwanted_genres = {
+            'Action & Adventure', 'Bollywood', 'Drama', 'kids', 'Music', 'News', 'Reality', 
+            'Western', 'Sci-Fi & Fantasy', 'TV Movie', 'Soap', 'Web Series', 'War', 'Talk'
+        }
+        genre_set = genre_set - unwanted_genres
+        
+        # Complete progress
+        progress_bar.progress(1.0)
+        status_text.text("Data loaded successfully!")
+        time.sleep(1)
+        progress_bar.empty()
+        status_text.empty()
+        
+        return movies_df, ratings_df, {
+            'tfidf_matrix': tfidf_matrix,
+            'cosine_sim': cosine_sim,
+            'indices': indices,
+            'embeddings': embeddings,
+            'faiss_index': index,
+            'genre_set': sorted(genre_set)
+        }
+    except Exception as e:
+        logging.error(f"Error loading data: {str(e)}")
+        st.error(f"Error loading data: {str(e)}")
+        return pd.DataFrame(), pd.DataFrame(), {}
 
 # =========================================
 # MODULE 4: USER MANAGEMENT
@@ -535,6 +574,7 @@ def save_user_profile(username):
         with open(profile_path, 'wb') as f:
             pickle.dump(profile_data, f)
     except Exception as e:
+        logging.error(f"Error saving user profile: {str(e)}")
         st.error(f"Error saving user profile: {str(e)}")
 
 def load_user_profile(username):
@@ -567,6 +607,7 @@ def load_user_profile(username):
             st.session_state.user_preferences_set = profile_data.get('user_preferences_set', False)
             return True
     except Exception as e:
+        logging.error(f"Error loading user profile: {str(e)}")
         st.error(f"Error loading user profile: {str(e)}")
     return False
 
@@ -583,6 +624,7 @@ def save_login_activity(username):
         logs = pd.concat([logs, new_entry], ignore_index=True)
         logs.to_csv(LOGIN_ACTIVITY_FILE, index=False)
     except Exception as e:
+        logging.error(f"Error saving login activity: {str(e)}")
         st.error(f"Error saving login activity: {str(e)}")
 
 def validate_user(username, password):
@@ -593,6 +635,7 @@ def validate_user(username, password):
         df = pd.read_csv(USERS_FILE)
         return ((df['username'] == username) & (df['password'] == password)).any()
     except Exception as e:
+        logging.error(f"Error validating user: {str(e)}")
         st.error(f"Error validating user: {str(e)}")
         return False
 
@@ -611,6 +654,7 @@ def register_user(username, password):
         df.to_csv(USERS_FILE, index=False)
         return True
     except Exception as e:
+        logging.error(f"Error registering user: {str(e)}")
         st.error(f"Error registering user: {str(e)}")
         return False
 
@@ -633,6 +677,7 @@ def initialize_user_profile(username):
             st.session_state.user_preferences_set = False
             save_user_profile(username)
     except Exception as e:
+        logging.error(f"Error initializing user profile: {str(e)}")
         st.error(f"Error initializing user profile: {str(e)}")
 
 # =========================================
@@ -655,6 +700,7 @@ def train_dl_model():
         model.fit(trainset)
         return model
     except Exception as e:
+        logging.error(f"Error training DL model: {str(e)}")
         st.error(f"Error training DL model: {str(e)}")
         return None
 
@@ -675,6 +721,7 @@ def get_user_preferred_genres():
             counter = Counter(all_genres)
             return [genre for genre, _ in counter.most_common(3)]
     except Exception as e:
+        logging.error(f"Error getting preferred genres: {str(e)}")
         st.error(f"Error getting preferred genres: {str(e)}")
     return []
 
@@ -801,6 +848,7 @@ def advanced_hybrid_recommendation(title=None, user_id=None, top_n=10, selected_
             
         return results.head(top_n)
     except Exception as e:
+        logging.error(f"Error generating recommendations: {str(e)}")
         st.error(f"Error generating recommendations: {str(e)}")
         return pd.DataFrame()
 
@@ -865,25 +913,36 @@ def get_personalized_recommendations(top_n=5):
         
         return results.head(top_n)
     except Exception as e:
+        logging.error(f"Error getting personalized recommendations: {str(e)}")
         st.error(f"Error getting personalized recommendations: {str(e)}")
         return pd.DataFrame()
 
 # =========================================
 # MODULE 6: USER PREFERENCES MANAGEMENT
 # =========================================
-def update_user_preference(movie_id, action):
-    """Update user preferences based on like/dislike actions"""
+def update_preferences(action, movie_id, context="default"):
+    """Centralized function to update user preferences"""
     try:
         movies_df, _, _ = st.session_state.cached_data
         movie_title = movies_df[movies_df['id'] == movie_id]['title'].values[0]
         
+        # Create copies of lists to ensure state change detection
+        prefs = st.session_state.user_preferences.copy()
+        liked = list(prefs['liked_movies'])
+        disliked = list(prefs['disliked_movies'])
+        watchlist = list(prefs['watchlist'])
+        
         if action == 'like':
-            if movie_title in st.session_state.user_preferences['disliked_movies']:
-                st.session_state.user_preferences['disliked_movies'].remove(movie_title)
-            if movie_title not in st.session_state.user_preferences['liked_movies']:
-                st.session_state.user_preferences['liked_movies'].append(movie_title)
+            # Remove from disliked if present
+            if movie_title in disliked:
+                disliked = [m for m in disliked if m != movie_title]
                 
-            # Update user vector - more significant impact for likes
+            # Add to liked if not present
+            if movie_title not in liked:
+                liked = liked + [movie_title]
+                st.toast(f"👍 Liked {movie_title}!", icon="👍")
+                
+            # Update user vector
             movie_idx = movies_df.index[movies_df['id'] == movie_id].tolist()[0]
             movie_embedding = st.session_state.cached_data[2]['embeddings'][movie_idx]
             
@@ -893,17 +952,37 @@ def update_user_preference(movie_id, action):
                 st.session_state.user_vector = st.session_state.user_vector * 0.5 + movie_embedding * 0.5
                 
         elif action == 'dislike':
-            if movie_title in st.session_state.user_preferences['liked_movies']:
-                st.session_state.user_preferences['liked_movies'].remove(movie_title)
-            if movie_title not in st.session_state.user_preferences['disliked_movies']:
-                st.session_state.user_preferences['disliked_movies'].append(movie_title)
+            # Remove from liked if present
+            if movie_title in liked:
+                liked = [m for m in liked if m != movie_title]
+                
+            # Add to disliked if not present
+            if movie_title not in disliked:
+                disliked = disliked + [movie_title]
+                st.toast(f"👎 Disliked {movie_title}!", icon="👎")
             
-            # Update user vector - less significant impact for dislikes
+            # Update user vector
             movie_idx = movies_df.index[movies_df['id'] == movie_id].tolist()[0]
             movie_embedding = st.session_state.cached_data[2]['embeddings'][movie_idx]
             
             if st.session_state.user_vector is not None:
                 st.session_state.user_vector = st.session_state.user_vector * 0.9 - movie_embedding * 0.1
+        
+        elif action == 'add_to_watchlist':
+            if movie_title not in watchlist:
+                watchlist = watchlist + [movie_title]
+                st.toast(f"✅ Added {movie_title} to your watchlist!", icon="✅")
+                st.session_state.co2_savings += 2.5
+        elif action == 'remove_from_watchlist':
+            if movie_title in watchlist:
+                watchlist = [m for m in watchlist if m != movie_title]
+                st.toast(f"✅ Removed {movie_title} from your watchlist!", icon="✅")
+        
+        # Update preferences with new lists
+        prefs['liked_movies'] = liked
+        prefs['disliked_movies'] = disliked
+        prefs['watchlist'] = watchlist
+        st.session_state.user_preferences = prefs
         
         # Save updated profile
         save_user_profile(st.session_state.username)
@@ -912,42 +991,19 @@ def update_user_preference(movie_id, action):
         # Force UI refresh to show updated recommendations
         st.rerun()
     except Exception as e:
-        st.error(f"Error updating preference: {str(e)}")
-
-def update_watchlist(movie_id, action):
-    """Add or remove movie from user's watchlist"""
-    try:
-        movies_df, _, _ = st.session_state.cached_data
-        movie_title = movies_df[movies_df['id'] == movie_id]['title'].values[0]
-        
-        if action == 'add':
-            if movie_title not in st.session_state.user_preferences['watchlist']:
-                st.session_state.user_preferences['watchlist'].append(movie_title)
-                st.success(f"✅ Added {movie_title} to your watchlist!")
-                
-                # Calculate CO2 savings (2.5kg per movie)
-                st.session_state.co2_savings += 2.5
-                log_event(st.session_state.username, movie_title, "add_to_watchlist")
-        elif action == 'remove':
-            if movie_title in st.session_state.user_preferences['watchlist']:
-                st.session_state.user_preferences['watchlist'].remove(movie_title)
-                st.success(f"✅ Removed {movie_title} from your watchlist!")
-                log_event(st.session_state.username, movie_title, "remove_from_watchlist")
-        
-        # Save updated profile
-        save_user_profile(st.session_state.username)
-    except Exception as e:
-        st.error(f"Error updating watchlist: {str(e)}")
+        logging.error(f"Error updating preferences: {str(e)}")
+        st.error(f"Error updating preferences: {str(e)}")
 
 def save_user_taste_preferences():
     """Save user's taste preferences from the form"""
     try:
         st.session_state.user_preferences_set = True
         save_user_profile(st.session_state.username)
-        st.success("Preferences saved successfully! 🎉")
+        st.toast("Preferences saved successfully! 🎉", icon="✅")
         st.session_state.preferences_expanded = False
         st.rerun()
     except Exception as e:
+        logging.error(f"Error saving preferences: {str(e)}")
         st.error(f"Error saving preferences: {str(e)}")
 
 # =========================================
@@ -1013,28 +1069,27 @@ def movie_card(movie, show_feedback=True, context="default", index=0):
                 
                 if show_feedback and st.session_state.logged_in:
                     c1, c2, c3 = st.columns(3)
-                    unique_key_like = f"{context}_like_{movie['id']}_{index}_{uuid.uuid4().hex[:6]}"
-                    unique_key_dislike = f"{context}_dislike_{movie['id']}_{index}_{uuid.uuid4().hex[:6]}"
-                    unique_key_watchlist = f"{context}_watchlist_{movie['id']}_{index}_{uuid.uuid4().hex[:6]}"
+                    unique_key = f"{context}_{movie['id']}_{index}_{uuid.uuid4().hex[:6]}"
                     
                     with c1:
-                        if st.button("👍 Like", key=unique_key_like, use_container_width=True):
-                            update_user_preference(movie['id'], 'like')
+                        if st.button("👍 Like", key=f"like_{unique_key}", use_container_width=True):
+                            update_preferences('like', movie['id'], context)
                     with c2:
-                        if st.button("👎 Dislike", key=unique_key_dislike, use_container_width=True):
-                            update_user_preference(movie['id'], 'dislike')
+                        if st.button("👎 Dislike", key=f"dislike_{unique_key}", use_container_width=True):
+                            update_preferences('dislike', movie['id'], context)
                     with c3:
                         # Safely access watchlist with default
                         watchlist = st.session_state.user_preferences.get('watchlist', [])
                         if movie['title'] in watchlist:
-                            if st.button("❌ Remove Watchlist", key=unique_key_watchlist, use_container_width=True):
-                                update_watchlist(movie['id'], 'remove')
+                            if st.button("❌ Remove Watchlist", key=f"remove_wl_{unique_key}", use_container_width=True):
+                                update_preferences('remove_from_watchlist', movie['id'], context)
                         else:
-                            if st.button("➕ Add to Watchlist", key=unique_key_watchlist, use_container_width=True):
-                                update_watchlist(movie['id'], 'add')
+                            if st.button("➕ Add to Watchlist", key=f"add_wl_{unique_key}", use_container_width=True):
+                                update_preferences('add_to_watchlist', movie['id'], context)
 
             st.markdown("</div>", unsafe_allow_html=True)
     except Exception as e:
+        logging.error(f"Error rendering movie card: {str(e)}")
         st.error(f"Error rendering movie card: {str(e)}")
 
 def render_login_signup():
@@ -1049,22 +1104,26 @@ def render_login_signup():
         login_password = st.text_input("Password", type="password", key="login_pass")
         
         if st.button("Login", key="login_btn", use_container_width=True):
-            if login_username == "Vic" and login_password == "Vik":
-                st.success("✅ Admin Logged In")
-                st.session_state.logged_in = True
-                st.session_state.username = login_username
-                save_login_activity(login_username)
-                initialize_user_profile(login_username)
-                st.rerun()
-            elif validate_user(login_username, login_password):
-                st.success(f"✅ Welcome {login_username}")
-                st.session_state.logged_in = True
-                st.session_state.username = login_username
-                save_login_activity(login_username)
-                initialize_user_profile(login_username)
-                st.rerun()
-            else:
-                st.error("❌ Invalid Credentials")
+            try:
+                if login_username == "Vic" and login_password == "Vik":
+                    st.success("✅ Admin Logged In")
+                    st.session_state.logged_in = True
+                    st.session_state.username = login_username
+                    save_login_activity(login_username)
+                    initialize_user_profile(login_username)
+                    st.rerun()
+                elif validate_user(login_username, login_password):
+                    st.success(f"✅ Welcome {login_username}")
+                    st.session_state.logged_in = True
+                    st.session_state.username = login_username
+                    save_login_activity(login_username)
+                    initialize_user_profile(login_username)
+                    st.rerun()
+                else:
+                    st.error("❌ Invalid Credentials")
+            except Exception as e:
+                logging.error(f"Login error: {str(e)}")
+                st.error("Error during login. Please try again.")
     
     with col2:
         st.markdown("### 🎉 Create New Account")
@@ -1073,17 +1132,21 @@ def render_login_signup():
         reg_confirm = st.text_input("Confirm Password", type="password", key="reg_confirm")
         
         if st.button("Register", key="reg_btn", use_container_width=True):
-            if reg_password != reg_confirm:
-                st.error("Passwords do not match")
-            elif register_user(reg_username, reg_password):
-                st.success("🎉 Signup successful. You are now logged in.")
-                st.session_state.logged_in = True
-                st.session_state.username = reg_username
-                save_login_activity(reg_username)
-                initialize_user_profile(reg_username)
-                st.rerun()
-            else:
-                st.warning("⚠️ Username already exists. Try logging in.")
+            try:
+                if reg_password != reg_confirm:
+                    st.error("Passwords do not match")
+                elif register_user(reg_username, reg_password):
+                    st.success("🎉 Signup successful. You are now logged in.")
+                    st.session_state.logged_in = True
+                    st.session_state.username = reg_username
+                    save_login_activity(reg_username)
+                    initialize_user_profile(reg_username)
+                    st.rerun()
+                else:
+                    st.warning("⚠️ Username already exists. Try logging in.")
+            except Exception as e:
+                logging.error(f"Registration error: {str(e)}")
+                st.error("Error during registration. Please try again.")
 
 def render_taste_preferences_form():
     """Render the taste preferences form"""
@@ -1137,14 +1200,15 @@ def render_taste_preferences_form():
         
         # Save button
         if st.button("Save Preferences", key="save_prefs_btn", use_container_width=True):
-            st.session_state.user_preferences['preferred_genres'] = selected_genres
-            st.session_state.user_preferences['preferred_era'] = selected_era
-            st.session_state.user_preferences['preferred_actors'] = selected_actors
-            st.session_state.user_preferences['preferred_directors'] = selected_directors
-            st.session_state.user_preferences_set = True
-            save_user_profile(st.session_state.username)
-            st.success("Preferences saved successfully! 🎉")
-            st.rerun()
+            try:
+                st.session_state.user_preferences['preferred_genres'] = selected_genres
+                st.session_state.user_preferences['preferred_era'] = selected_era
+                st.session_state.user_preferences['preferred_actors'] = selected_actors
+                st.session_state.user_preferences['preferred_directors'] = selected_directors
+                save_user_taste_preferences()
+            except Exception as e:
+                logging.error(f"Error saving taste preferences: {str(e)}")
+                st.error("Error saving preferences. Please try again.")
 
 # =========================================
 # MODULE 8: MAIN APPLICATION LOGIC
@@ -1307,6 +1371,7 @@ def render_search_tab():
             else:
                 st.warning("No movies found matching your search")
         except Exception as e:
+            logging.error(f"Search error: {str(e)}")
             st.error(f"Error during search: {str(e)}")
 
 def render_popular_tab():
@@ -1389,6 +1454,7 @@ def render_genre_tab():
             for _, row in filtered.iloc[start:end].iterrows():
                 movie_card(row, context="genre")
         except Exception as e:
+            logging.error(f"Genre filter error: {str(e)}")
             st.error(f"Error filtering by genre: {str(e)}")
     else:
         st.warning("Please select at least one genre")
@@ -1544,6 +1610,7 @@ def render_actor_director_tab():
                 else:
                     st.warning(f"No movies found with {search_name}")
             except Exception as e:
+                logging.error(f"Actor/director search error: {str(e)}")
                 st.error(f"Error searching for actor/director: {str(e)}")
 
 def render_hybrid_tab():
@@ -1704,6 +1771,7 @@ def render_dl_tab():
                 st.warning("No recommendations found. Try rating more movies.")
 
         except Exception as e:
+            logging.error(f"DL recommendation error: {str(e)}")
             st.error(f"❌ Error: {str(e)}")
 
 def render_profile_tab():
@@ -1800,6 +1868,16 @@ def main_app():
     st.markdown(f'<h1 class="neon-title">🎬 Movie Recommender Pro</h1>', unsafe_allow_html=True)
     st.markdown(f'<div style="text-align: center; margin-bottom: 30px;">Welcome back, <strong>{st.session_state.username}</strong>!</div>', unsafe_allow_html=True)
     
+    # Debug panel in sidebar
+    with st.sidebar:
+        st.markdown("### 🐞 Debug Panel")
+        st.session_state.show_debug = st.checkbox("Show User Preferences State", value=st.session_state.show_debug)
+        if st.session_state.show_debug:
+            st.write("Current Preferences:")
+            st.json(st.session_state.user_preferences)
+            st.write("User Vector:")
+            st.write(st.session_state.user_vector)
+    
     tabs = st.tabs([
         "🏠 Home",
         "🔍 Search",
@@ -1858,6 +1936,7 @@ def main():
             # Render main application
             main_app()
         except Exception as e:
+            logging.error(f"Main app error: {str(e)}")
             st.error(f"Application error: {str(e)}")
 
 # =========================================
