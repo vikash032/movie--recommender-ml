@@ -26,8 +26,6 @@ import faiss
 import time
 import uuid
 import re
-import mlflow
-import mlflow.sklearn
 from datetime import datetime
 from wordcloud import WordCloud
 from collections import defaultdict, Counter
@@ -60,10 +58,6 @@ def initialize_session_state():
         st.session_state.co2_savings = 0.0
     if "user_preferences_set" not in st.session_state:
         st.session_state.user_preferences_set = False
-    if "ab_group" not in st.session_state:
-        st.session_state.ab_group = None  # For A/B testing
-    if "algorithm_engagement" not in st.session_state:
-        st.session_state.algorithm_engagement = {"A": 0, "B": 0}  # Track engagement
 
     # Define default user preferences structure
     DEFAULT_USER_PREFERENCES = {
@@ -112,21 +106,6 @@ def log_event(user, movie, action):
             f.write(f"{datetime.now()},{movie},{action}\n")
     except Exception as e:
         st.error(f"Error logging event: {str(e)}")
-
-def log_recommendation(user, movie_id, algorithm, clicked=False):
-    """Log recommendation events"""
-    try:
-        os.makedirs('monitoring', exist_ok=True)
-        log_file = 'monitoring/recommendation_logs.csv'
-        
-        if not os.path.exists(log_file):
-            with open(log_file, 'w') as f:
-                f.write("user,timestamp,movie_id,algorithm,clicked\n")
-        
-        with open(log_file, 'a') as f:
-            f.write(f"{user},{datetime.now()},{movie_id},{algorithm},{int(clicked)}\n")
-    except Exception as e:
-        st.error(f"Error logging recommendation: {str(e)}")
 
 def display_poster(poster_path, class_name="poster-container", width=200):
     """Display movie poster with lazy loading and error handling"""
@@ -478,11 +457,8 @@ def load_data(api_key):
     # Remove duplicates
     movies_df = movies_df.drop_duplicates(subset=['id'])
     
-    # Load ratings data in chunks for large files
-    ratings_chunks = []
-    for chunk in pd.read_csv('ratings.csv', chunksize=10000):
-        ratings_chunks.append(chunk)
-    ratings_df = pd.concat(ratings_chunks, ignore_index=True)
+    # Load ratings data
+    ratings_df = pd.read_csv('ratings.csv')
     
     # Precompute TF-IDF and similarity
     tfidf = TfidfVectorizer(stop_words='english')
@@ -662,6 +638,7 @@ def initialize_user_profile(username):
 # =========================================
 # MODULE 5: RECOMMENDATION ENGINE
 # =========================================
+@st.cache_resource
 def train_dl_model():
     """Train and cache the deep learning model"""
     try:
@@ -672,122 +649,13 @@ def train_dl_model():
         
         reader = Reader(rating_scale=(0.5, 5))
         data = Dataset.load_from_df(ratings_df[['userId', 'movieId', 'rating']], reader)
-        trainset, testset = train_test_split(data, test_size=0.2, random_state=42)
+        trainset, _ = train_test_split(data, test_size=0.2, random_state=42)
 
-        # Start MLflow run
-        mlflow.start_run()
-        mlflow.log_param("algorithm", "SVD")
-        mlflow.log_param("n_factors", 50)
-        mlflow.log_param("n_epochs", 10)
-        mlflow.log_param("lr_all", 0.01)
-        mlflow.log_param("reg_all", 0.02)
-        
         model = SVD(n_factors=50, n_epochs=10, lr_all=0.01, reg_all=0.02)
         model.fit(trainset)
-        
-        # Evaluate model
-        predictions = model.test(testset)
-        rmse = accuracy.rmse(predictions)
-        mae = accuracy.mae(predictions)
-        
-        mlflow.log_metric("rmse", rmse)
-        mlflow.log_metric("mae", mae)
-        
-        # Log model
-        mlflow.sklearn.log_model(model, "model")
-        run_id = mlflow.active_run().info.run_id
-        mlflow.end_run()
-        
-        # Save model version
-        save_model_version(model, "collaborative", run_id)
-        
         return model
     except Exception as e:
         st.error(f"Error training DL model: {str(e)}")
-        return None
-
-def save_model_version(model, model_type, version_id):
-    """Save model version to registry"""
-    try:
-        os.makedirs("model_registry", exist_ok=True)
-        registry_file = "model_registry/versions.csv"
-        
-        new_version = {
-            "version_id": version_id,
-            "model_type": model_type,
-            "timestamp": datetime.now(),
-            "active": True
-        }
-        
-        if os.path.exists(registry_file):
-            versions = pd.read_csv(registry_file)
-            # Deactivate all previous versions of this type
-            versions.loc[versions['model_type'] == model_type, 'active'] = False
-        else:
-            versions = pd.DataFrame(columns=["version_id", "model_type", "timestamp", "active"])
-        
-        versions = versions.append(new_version, ignore_index=True)
-        versions.to_csv(registry_file, index=False)
-        
-        # Save model binary
-        model_path = f"model_registry/{version_id}.pkl"
-        with open(model_path, 'wb') as f:
-            pickle.dump(model, f)
-    except Exception as e:
-        st.error(f"Error saving model version: {str(e)}")
-
-def rollback_model_version(model_type, version_id=None):
-    """Rollback to a previous model version"""
-    try:
-        registry_file = "model_registry/versions.csv"
-        if not os.path.exists(registry_file):
-            st.error("No model versions available")
-            return False
-        
-        versions = pd.read_csv(registry_file)
-        
-        if version_id:
-            # Activate specific version
-            if version_id not in versions['version_id'].values:
-                st.error(f"Version {version_id} not found")
-                return False
-                
-            # Deactivate all versions of this type
-            versions.loc[versions['model_type'] == model_type, 'active'] = False
-            # Activate selected version
-            versions.loc[versions['version_id'] == version_id, 'active'] = True
-        else:
-            # Rollback to last version
-            last_version = versions[versions['model_type'] == model_type].sort_values('timestamp').iloc[-2]
-            versions.loc[versions['model_type'] == model_type, 'active'] = False
-            versions.loc[versions['version_id'] == last_version['version_id'], 'active'] = True
-        
-        versions.to_csv(registry_file, index=False)
-        return True
-    except Exception as e:
-        st.error(f"Error rolling back model: {str(e)}")
-        return False
-
-def get_active_model(model_type):
-    """Get the active model for a given type"""
-    try:
-        registry_file = "model_registry/versions.csv"
-        if not os.path.exists(registry_file):
-            return None
-        
-        versions = pd.read_csv(registry_file)
-        active_version = versions[(versions['model_type'] == model_type) & (versions['active'])]
-        
-        if active_version.empty:
-            return None
-            
-        version_id = active_version.iloc[0]['version_id']
-        model_path = f"model_registry/{version_id}.pkl"
-        
-        with open(model_path, 'rb') as f:
-            return pickle.load(f)
-    except Exception as e:
-        st.error(f"Error loading model: {str(e)}")
         return None
 
 def get_user_preferred_genres():
@@ -809,21 +677,6 @@ def get_user_preferred_genres():
     except Exception as e:
         st.error(f"Error getting preferred genres: {str(e)}")
     return []
-
-def select_algorithm():
-    """Select algorithm for A/B testing"""
-    if st.session_state.ab_group is None:
-        # Randomly assign user to group A or B
-        st.session_state.ab_group = np.random.choice(['A', 'B'])
-    
-    # Algorithm A: Hybrid recommendation
-    # Algorithm B: Content-based only
-    return st.session_state.ab_group
-
-def track_engagement(algorithm, action):
-    """Track user engagement with algorithms"""
-    if algorithm in st.session_state.algorithm_engagement:
-        st.session_state.algorithm_engagement[algorithm] += 1
 
 def advanced_hybrid_recommendation(title=None, user_id=None, top_n=10, selected_genres=None, 
                                   sort_by="latest", actor_director=None, mood=None):
@@ -1056,10 +909,6 @@ def update_user_preference(movie_id, action):
         save_user_profile(st.session_state.username)
         log_event(st.session_state.username, movie_title, action)
         
-        # Track engagement
-        if st.session_state.ab_group:
-            track_engagement(st.session_state.ab_group, action)
-        
         # Force UI refresh to show updated recommendations
         st.rerun()
     except Exception as e:
@@ -1185,11 +1034,6 @@ def movie_card(movie, show_feedback=True, context="default", index=0):
                                 update_watchlist(movie['id'], 'add')
 
             st.markdown("</div>", unsafe_allow_html=True)
-            
-            # Log recommendation
-            if st.session_state.logged_in and context in ["hybrid", "dl"]:
-                algorithm = "A" if context == "hybrid" else "B"
-                log_recommendation(st.session_state.username, movie['id'], algorithm)
     except Exception as e:
         st.error(f"Error rendering movie card: {str(e)}")
 
@@ -1425,34 +1269,15 @@ def render_home_tab():
     
     # Admin Panel
     if st.session_state.username == "Vic":
-        with st.expander("🛡️ Admin Panel", expanded=False):
-            st.markdown("### 👨‍💼 User Login Activity")
+        with st.expander("🛡️ Admin Panel - User Login Activity", expanded=False):
+            st.markdown("### 👨‍💼 User Login Logs")
             if os.path.exists(LOGIN_ACTIVITY_FILE):
                 logs = pd.read_csv(LOGIN_ACTIVITY_FILE)
                 st.dataframe(logs.sort_values("Timestamp", ascending=False).head(10))
             else:
                 st.info("No login activity recorded yet.")
-                
-            st.markdown("### 📊 A/B Testing Results")
-            st.write(f"Algorithm A (Hybrid) Engagements: {st.session_state.algorithm_engagement['A']}")
-            st.write(f"Algorithm B (Content) Engagements: {st.session_state.algorithm_engagement['B']}")
-            
-            st.markdown("### 🔄 Model Management")
-            st.write("Current active models:")
-            registry_file = "model_registry/versions.csv"
-            if os.path.exists(registry_file):
-                versions = pd.read_csv(registry_file)
-                st.dataframe(versions)
-                
-                model_type = st.selectbox("Model Type", ["collaborative", "content"])
-                version_id = st.text_input("Version ID to activate")
-                if st.button("Activate Version"):
-                    if rollback_model_version(model_type, version_id):
-                        st.success("Model version activated!")
-                    else:
-                        st.error("Failed to activate version")
-            else:
-                st.info("No model versions available")
+            if st.button("🔄 Refresh Logs"):
+                st.rerun()
 
 def render_search_tab():
     """Render the search tab content"""
@@ -1970,68 +1795,6 @@ def render_profile_tab():
         time.sleep(2)
         st.rerun()
 
-def render_system_design():
-    """Render the system design documentation"""
-    st.subheader("📐 System Architecture")
-    st.markdown("""
-    ### Sequence Diagram
-    ```plaintext
-    User → Web UI → Recommendation Service → Data + Model Store → Back to User
-    +--------+       +---------+       +---------------------+       +-----------------+       +--------+
-    | User   |       | Web UI  |       | Recommendation      |       | Data & Model    |       | User   |
-    |        |       |         |       | Service             |       | Store           |       |        |
-    +--------+       +---------+       +---------------------+       +-----------------+       +--------+
-        |                 |                         |                          |                     |
-        | Request Page    |                         |                          |                     |
-        |---------------> |                         |                          |                     |
-        |                 | Get Recommendations     |                          |                     |
-        |                 |-----------------------> |                          |                     |
-        |                 |                         | Query User Preferences   |                     |
-        |                 |                         |------------------------> |                     |
-        |                 |                         |                          | Retrieve Preferences|
-        |                 |                         |                          |-------------------> |
-        |                 |                         |       Preferences Data   |                     |
-        |                 |                         | <------------------------|                     |
-        |                 |                         |                          |                     |
-        |                 |                         | Query Movie Database     |                     |
-        |                 |                         |------------------------> |                     |
-        |                 |                         |                          | Retrieve Movies    |
-        |                 |                         |                          |-------------------> |
-        |                 |                         |       Movie Data         |                     |
-        |                 |                         | <------------------------|                     |
-        |                 |                         |                          |                     |
-        |                 |                         | Generate Recommendations |                     |
-        |                 |                         |------------------------> |                     |
-        |                 |                         |                          | Retrieve Model     |
-        |                 |                         |                          |-------------------> |
-        |                 |                         |       Model Results      |                     |
-        |                 |                         | <------------------------|                     |
-        |                 |       Recommendations   |                          |                     |
-        |                 | <-----------------------|                          |                     |
-        |   Rendered Page |                         |                          |                     |
-        | <---------------|                         |                          |                     |
-        |                 |                         |                          |                     |
-        | User Interaction|                         |                          |                     |
-        |---------------> |                         |                          |                     |
-        |                 | Log Interaction         |                          |                     |
-        |                 |-----------------------> |                          |                     |
-        |                 |                         | Store Interaction       |                     |
-        |                 |                         |------------------------> |                     |
-        |                 |                         |                          | Save Log           |
-        |                 |                         |                          |-------------------> |
-    ```
-    
-    ### Components
-    1. **User**: Interacts with the web UI
-    2. **Web UI**: Streamlit-based interface
-    3. **Recommendation Service**: Core recommendation algorithms
-    4. **Data & Model Store**: 
-        - Movie database (CSV + TMDB API)
-        - User profiles
-        - Trained models
-        - Interaction logs
-    """)
-
 def main_app():
     """Main application logic after login"""
     st.markdown(f'<h1 class="neon-title">🎬 Movie Recommender Pro</h1>', unsafe_allow_html=True)
@@ -2047,8 +1810,7 @@ def main_app():
         "🎭 Actor/Director",
         "💡 Hybrid",
         "🤖 Deep Learning",
-        "👤 Profile",
-        "📐 System Design"
+        "👤 Profile"
     ])
     
     with tabs[0]:
@@ -2071,8 +1833,6 @@ def main_app():
         render_dl_tab()
     with tabs[9]:
         render_profile_tab()
-    with tabs[10]:
-        render_system_design()
 
 def main():
     """Main application entry point"""
@@ -2093,10 +1853,7 @@ def main():
             
             # Load deep learning model
             global dl_model
-            dl_model = get_active_model("collaborative")
-            if dl_model is None:
-                with st.spinner("Training collaborative filtering model..."):
-                    dl_model = train_dl_model()
+            dl_model = train_dl_model()
             
             # Render main application
             main_app()
@@ -2417,9 +2174,6 @@ if __name__ == "__main__":
     
     # Load deep learning model
     dl_model = None
-    
-    # Initialize MLflow
-    mlflow.set_tracking_uri("file:./mlruns")
     
     # Run main application
     main()
