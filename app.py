@@ -1460,7 +1460,7 @@ def render_genre_tab():
     st.subheader("🎯 Discover by Genre")
     # Get available genres
     available_genres = precomputed.get('genre_set', [])
-    valid_defaults = ["Action", "Comedy"] if available_genres else []
+    valid_defaults = ["Fantasy", "Adventure"] if available_genres else []
     
     selected_genres = st.multiselect(
         "Select genres", 
