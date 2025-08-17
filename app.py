@@ -1211,7 +1211,7 @@ def render_taste_preferences_form():
         selected_era = st.selectbox(
             "Which era of movies do you prefer?",
             era_options,
-            index=era_options.index(st.session_state.user_preferences.get('preferred_era', "Any"))
+            index=era_options.index(st.session_state.user_preferences.get('preferred_era', "Any")))
         
         # Favorite actors
         st.subheader("Favorite Actors/Actresses")
