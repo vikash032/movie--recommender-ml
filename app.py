@@ -491,9 +491,9 @@ def load_data(api_key):
     movies_df = pd.DataFrame(detailed_movies)
 
     # ensure overview exists so TF-IDF won't KeyError
+    
     if 'overview' not in movies_df.columns:
-    movies_df['overview'] = ''
-
+        movies_df['overview'] = ''
 
     # load ratings (safe)
     try:
