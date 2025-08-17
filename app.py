@@ -248,7 +248,23 @@ def fetch_movie_details(movie_id, api_key):
         }
     except Exception as e:
         st.error(f"Error fetching details for movie {movie_id}: {str(e)}")
-        return None
+        # Return a default skeleton so callers don't break (ensures 'overview' exists)
+        return {
+            'id': movie_id,
+            'title': 'Unknown Title',
+            'release_date': '',
+            'overview': '',
+            'vote_average': 0,
+            'vote_count': 0,
+            'popularity': 0,
+            'budget': 0,
+            'genres': '',
+            'director': 'Unknown',
+            'actors': [],
+            'poster_path': None,
+            'original_language': 'en'
+        }
+
 
 @st.cache_data(ttl=3600*24)  # Cache for 24 hours
 def fetch_popular_movies_by_year(years, api_key, movies_per_year=50):
@@ -450,12 +466,42 @@ def load_data(api_key):
             progress = (i + 1) / len(movies_list) * 0.7 + 0.3
             progress_bar.progress(progress)
             status_text.text(f"Loading movie data... {int(progress*100)}%")
-    
+
+    # --- Defensive check: how many detailed movies we actually gathered ---
+    st.write("Fetched detailed movie count:", len(detailed_movies))
+
+    # If nothing was fetched, return safe empty structures (prevents KeyError on 'overview')
+    if len(detailed_movies) == 0:
+        st.error("No movie details were fetched. Check your TMDB API key, network, or rate limits.")
+        empty_df = pd.DataFrame(columns=[
+            'id','title','release_date','overview','vote_average','vote_count',
+            'popularity','budget','genres','director','actors','poster_path','original_language'
+        ])
+        return empty_df, pd.DataFrame(), {
+            'tfidf_matrix': None,
+            'cosine_sim': None,
+            'indices': pd.Series(dtype=int),
+            'embeddings': None,
+            'faiss_index': None,
+            'genre_set': []
+        }
+
+
     # Create DataFrame
     movies_df = pd.DataFrame(detailed_movies)
-    
-    # Remove duplicates
-    movies_df = movies_df.drop_duplicates(subset=['id'])
+
+    # ensure overview exists so TF-IDF won't KeyError
+    if 'overview' not in movies_df.columns:
+    movies_df['overview'] = ''
+
+
+    # load ratings (safe)
+    try:
+    ratings_df = pd.read_csv('ratings.csv')
+    except Exception:
+    st.warning("ratings.csv not found or unreadable — continuing without ratings.")
+    ratings_df = pd.DataFrame(columns=['userId', 'movieId', 'rating', 'timestamp'])
+
     
     # Load ratings data
     ratings_df = pd.read_csv('ratings.csv')
