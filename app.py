@@ -65,6 +65,10 @@ def initialize_session_state():
         st.session_state.user_preferences_set = False
     if "show_debug" not in st.session_state:
         st.session_state.show_debug = False
+    if "poster_clicked" not in st.session_state:
+        st.session_state.poster_clicked = None
+    if "show_details" not in st.session_state:
+        st.session_state.show_details = False
 
     # Define default user preferences structure
     DEFAULT_USER_PREFERENCES = {
@@ -119,14 +123,15 @@ def log_event(user, movie, action):
         logging.error(f"Error logging event: {str(e)}")
         st.error(f"Error logging event: {str(e)}")
 
-def display_poster(poster_path, class_name="poster-container", width=200):
+def display_poster(poster_path, class_name="poster-container", width=200, movie_id=None):
     """Display movie poster with lazy loading and error handling"""
     try:
         if poster_path:
             poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+            # Make poster clickable
             st.markdown(
                 f"""
-                <div class="{class_name}" style="width:{width}px">
+                <div class="{class_name}" style="width:{width}px; cursor:pointer;" onclick="streamlitSetPosterClicked({movie_id})">
                     <img src="{poster_url}" class="poster-img" alt="Movie Poster" loading="lazy" 
                          onerror="this.onerror=null; this.src='https://via.placeholder.com/300x450?text=Poster+Not+Available';">
                 </div>
@@ -141,7 +146,7 @@ def display_poster(poster_path, class_name="poster-container", width=200):
     # Show placeholder if no poster found
     st.markdown(
         f"""
-        <div class="{class_name}" style="width:{width}px">
+        <div class="{class_name}" style="width:{width}px; cursor:pointer;" onclick="streamlitSetPosterClicked({movie_id})">
             <div style="background:#333; border-radius:10px; width:100%; height:300px; display:flex; align-items:center; justify-content:center;">
                 <span style="color:#aaa; text-align:center;">No Poster<br>Available</span>
             </div>
@@ -256,6 +261,22 @@ def fetch_movie_details(movie_id, api_key):
         if not overview or overview.strip() == "":
             overview = "No overview available."
         
+        # Extract runtime
+        runtime = data.get('runtime', 0)
+        
+        # Extract production companies
+        production_companies = []
+        if 'production_companies' in data:
+            production_companies = [company['name'] for company in data['production_companies']]
+        
+        # Extract spoken languages
+        languages = []
+        if 'spoken_languages' in data:
+            languages = [lang['english_name'] for lang in data['spoken_languages']]
+        
+        # Official website
+        homepage = data.get('homepage', '')
+        
         return {
             'id': movie_id,
             'title': data.get('title', 'Unknown Title'),
@@ -269,7 +290,11 @@ def fetch_movie_details(movie_id, api_key):
             'director': director,
             'actors': actors,
             'poster_path': poster_path,
-            'original_language': data.get('original_language', 'en')
+            'original_language': data.get('original_language', 'en'),
+            'runtime': runtime,
+            'production_companies': production_companies,
+            'languages': languages,
+            'homepage': homepage
         }
     except Exception as e:
         logging.error(f"Error fetching details for movie {movie_id}: {str(e)}")
@@ -1066,7 +1091,7 @@ def movie_card(movie, show_feedback=True, context="default", index=0):
             col1, col2 = st.columns([1, 3])
             with col1:
                 # Use poster_path directly from movie data
-                display_poster(movie.get('poster_path'), class_name="poster-container")
+                display_poster(movie.get('poster_path'), class_name="poster-container", movie_id=movie['id'])
             
             with col2:
                 st.subheader(movie['title'])
@@ -1249,6 +1274,69 @@ def render_taste_preferences_form():
                 logging.error(f"Error saving taste preferences: {str(e)}")
                 st.error("Error saving preferences. Please try again.")
 
+def show_movie_details(movie_id):
+    """Display movie details in a two-column layout"""
+    try:
+        # Fetch movie details
+        movie_details = fetch_movie_details(movie_id, st.secrets["TMDB_API_KEY"])
+        
+        if not movie_details:
+            st.error("Failed to fetch movie details")
+            return
+        
+        with st.expander("🎬 Movie Details", expanded=True):
+            col1, col2 = st.columns([1, 2])
+            
+            with col1:
+                # Display large poster
+                display_poster(movie_details.get('poster_path'), width=300, movie_id=movie_id)
+            
+            with col2:
+                # Title and metadata
+                st.markdown(f"<h2 style='margin-top:0;'>🎬 {movie_details['title']}</h2>", unsafe_allow_html=True)
+                
+                # Overview
+                st.markdown(f"<div style='margin-bottom:15px;'><strong>📝 Overview:</strong> {movie_details['overview']}</div>", unsafe_allow_html=True)
+                
+                # Details grid
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown(f"**📅 Release Date:** {movie_details.get('release_date', 'N/A')}")
+                    st.markdown(f"**⏱️ Runtime:** {movie_details.get('runtime', 0)} minutes")
+                    st.markdown(f"**⭐ Rating:** {movie_details.get('vote_average', 0)} ({movie_details.get('vote_count', 0)} votes)")
+                    
+                with col2:
+                    # Genres
+                    genres = movie_details.get('genres', 'N/A')
+                    if isinstance(genres, str):
+                        genres = genres.split(', ')
+                    st.markdown(f"**🎭 Genres:** {', '.join(genres)}")
+                    
+                    # Languages
+                    languages = movie_details.get('languages', [])
+                    if not languages:
+                        languages = [movie_details.get('original_language', 'N/A')]
+                    st.markdown(f"**🌐 Languages:** {', '.join(languages)}")
+                
+                # Production companies
+                prod_companies = movie_details.get('production_companies', [])
+                if prod_companies:
+                    st.markdown(f"**🏢 Production Companies:** {', '.join(prod_companies)}")
+                else:
+                    st.markdown("**🏢 Production Companies:** N/A")
+                
+                # Official website
+                homepage = movie_details.get('homepage', '')
+                if homepage:
+                    st.markdown(f"**🔗 Official Website:** [{homepage}]({homepage})")
+                else:
+                    st.markdown("**🔗 Official Website:** N/A")
+                
+    except Exception as e:
+        logging.error(f"Error showing movie details: {str(e)}")
+        st.error(f"Error showing movie details: {str(e)}")
+
 # =========================================
 # MODULE 8: MAIN APPLICATION LOGIC
 # =========================================
@@ -1331,7 +1419,7 @@ def render_home_tab():
         cols = st.columns(5)
         for idx, movie in enumerate(realtime_data['trending'][:5]):
             with cols[idx % 5]:
-                display_poster(movie.get('poster_path'), class_name="poster-container", width=150)
+                display_poster(movie.get('poster_path'), class_name="poster-container", width=150, movie_id=movie['id'])
                 st.caption(f"**{movie['title']}**")
                 st.caption(f"⭐ {movie.get('vote_average', 'N/A')}")
     
@@ -1340,7 +1428,7 @@ def render_home_tab():
         cols = st.columns(5)
         for idx, movie in enumerate(realtime_data['new_releases'][:5]):
             with cols[idx % 5]:
-                display_poster(movie.get('poster_path'), class_name="poster-container", width=150)
+                display_poster(movie.get('poster_path'), class_name="poster-container", width=150, movie_id=movie['id'])
                 st.caption(f"**{movie['title']}**")
                 st.caption(f"📅 {movie.get('release_date', 'N/A')}")
     
@@ -1352,7 +1440,7 @@ def render_home_tab():
         cols = st.columns(5)
         for idx, (_, row) in enumerate(bollywood_movies.head(5).iterrows()):
             with cols[idx % 5]:
-                display_poster(row.get('poster_path'), class_name="poster-container", width=150)
+                display_poster(row.get('poster_path'), class_name="poster-container", width=150, movie_id=row['id'])
                 st.caption(f"**{row['title']}**")
                 st.progress(row['weighted_score'] / 10, text=f"⭐ {row['vote_average']}")
     else:
@@ -1451,8 +1539,29 @@ def render_popular_tab():
     
     # Display the slice
     st.write(f"📖 Showing {start_idx+1} - {min(end_idx, len(sorted_df))} of {len(sorted_df)} movies")
-    for _, row in sorted_df.iloc[start_idx:end_idx].iterrows():
-        movie_card(row, context="browse")
+    
+    # Show posters in grid
+    movies_in_page = sorted_df.iloc[start_idx:end_idx]
+    num_movies = len(movies_in_page)
+    num_cols = 5
+    num_rows = (num_movies + num_cols - 1) // num_cols
+    
+    for row_idx in range(num_rows):
+        cols = st.columns(num_cols)
+        for col_idx in range(num_cols):
+            idx = row_idx * num_cols + col_idx
+            if idx < num_movies:
+                movie = movies_in_page.iloc[idx]
+                with cols[col_idx]:
+                    display_poster(movie['poster_path'], width=150, movie_id=movie['id'])
+                    st.caption(f"**{movie['title']}**")
+                    st.caption(f"⭐ {movie['vote_average']}")
+    
+    # Show details if a poster was clicked
+    if st.session_state.poster_clicked:
+        st.button("View Details", key="view_details_btn", use_container_width=True)
+        if st.session_state.get('show_details'):
+            show_movie_details(st.session_state.poster_clicked)
 
 def render_genre_tab():
     """Render the genre filter tab"""
@@ -1489,9 +1598,22 @@ def render_genre_tab():
             start = (page-1) * num_per_page
             end = start + num_per_page
             
-            # Display results
-            for _, row in filtered.iloc[start:end].iterrows():
-                movie_card(row, context="genre")
+            # Display results in grid
+            movies_in_page = filtered.iloc[start:end]
+            num_movies = len(movies_in_page)
+            num_cols = 5
+            num_rows = (num_movies + num_cols - 1) // num_cols
+            
+            for row_idx in range(num_rows):
+                cols = st.columns(num_cols)
+                for col_idx in range(num_cols):
+                    idx = row_idx * num_cols + col_idx
+                    if idx < num_movies:
+                        movie = movies_in_page.iloc[idx]
+                        with cols[col_idx]:
+                            display_poster(movie['poster_path'], width=150, movie_id=movie['id'])
+                            st.caption(f"**{movie['title']}**")
+                            st.caption(f"⭐ {movie['vote_average']}")
         except Exception as e:
             logging.error(f"Genre filter error: {str(e)}")
             st.error(f"Error filtering by genre: {str(e)}")
@@ -1543,11 +1665,30 @@ def render_latest_tab():
         start = (page-1) * num_per_page
         end = start + num_per_page
         
-        # Show movie cards
-        for _, row in current_year_movies.iloc[start:end].iterrows():
-            movie_card(row, context="latest", show_feedback=True)
+        # Show movie cards in grid
+        movies_in_page = current_year_movies.iloc[start:end]
+        num_movies = len(movies_in_page)
+        num_cols = 5
+        num_rows = (num_movies + num_cols - 1) // num_cols
+        
+        for row_idx in range(num_rows):
+            cols = st.columns(num_cols)
+            for col_idx in range(num_cols):
+                idx = row_idx * num_cols + col_idx
+                if idx < num_movies:
+                    movie = movies_in_page.iloc[idx]
+                    with cols[col_idx]:
+                        display_poster(movie['poster_path'], width=150, movie_id=movie['id'])
+                        st.caption(f"**{movie['title']}**")
+                        st.caption(f"⭐ {movie['vote_average']}")
     else:
         st.warning(f"No movies found for {selected_year} with selected genres.")
+    
+    # Show details if a poster was clicked
+    if st.session_state.poster_clicked:
+        st.button("View Details", key="view_details_btn", use_container_width=True)
+        if st.session_state.get('show_details'):
+            show_movie_details(st.session_state.poster_clicked)
 
 def render_analytics_tab():
     """Render the analytics tab"""
@@ -1652,14 +1793,33 @@ def render_actor_director_tab():
                     start = (page-1) * num_per_page
                     end = start + num_per_page
                     
-                    # Display results
-                    for _, row in results.iloc[start:end].iterrows():
-                        movie_card(row, context="actor", show_feedback=True)
+                    # Display results in grid
+                    movies_in_page = results.iloc[start:end]
+                    num_movies = len(movies_in_page)
+                    num_cols = 5
+                    num_rows = (num_movies + num_cols - 1) // num_cols
+                    
+                    for row_idx in range(num_rows):
+                        cols = st.columns(num_cols)
+                        for col_idx in range(num_cols):
+                            idx = row_idx * num_cols + col_idx
+                            if idx < num_movies:
+                                movie = movies_in_page.iloc[idx]
+                                with cols[col_idx]:
+                                    display_poster(movie['poster_path'], width=150, movie_id=movie['id'])
+                                    st.caption(f"**{movie['title']}**")
+                                    st.caption(f"⭐ {movie['vote_average']}")
                 else:
                     st.warning(f"No movies found with {search_name}")
             except Exception as e:
                 logging.error(f"Actor/director search error: {str(e)}")
                 st.error(f"Error searching for actor/director: {str(e)}")
+    
+    # Show details if a poster was clicked
+    if st.session_state.poster_clicked:
+        st.button("View Details", key="view_details_btn", use_container_width=True)
+        if st.session_state.get('show_details'):
+            show_movie_details(st.session_state.poster_clicked)
 
 def render_hybrid_tab():
     """Render the hybrid recommendations tab"""
@@ -1760,11 +1920,29 @@ def render_hybrid_tab():
                 # Show recommendation context
                 st.subheader(f"🌟 Recommendations {recommendation_basis}")
                 
-                # Show recommendations
-                for _, row in results.iterrows():
-                    movie_card(row, context="hybrid")
+                # Show recommendations in grid
+                num_movies = len(results)
+                num_cols = 5
+                num_rows = (num_movies + num_cols - 1) // num_cols
+                
+                for row_idx in range(num_rows):
+                    cols = st.columns(num_cols)
+                    for col_idx in range(num_cols):
+                        idx = row_idx * num_cols + col_idx
+                        if idx < num_movies:
+                            movie = results.iloc[idx]
+                            with cols[col_idx]:
+                                display_poster(movie['poster_path'], width=150, movie_id=movie['id'])
+                                st.caption(f"**{movie['title']}**")
+                                st.caption(f"⭐ {movie['vote_average']}")
             else:
                 st.warning("⚠️ No recommendations found matching your criteria")
+    
+    # Show details if a poster was clicked
+    if st.session_state.poster_clicked:
+        st.button("View Details", key="view_details_btn", use_container_width=True)
+        if st.session_state.get('show_details'):
+            show_movie_details(st.session_state.poster_clicked)
 
 def render_dl_tab():
     """Render the deep learning recommendations tab"""
@@ -1813,11 +1991,24 @@ def render_dl_tab():
                 if liked_movies:
                     st.write(f"✨ Based on your likes: **{', '.join(liked_movies[:3])}**")
                 
-                # Show recommendations
-                for i, row in recs_df.iterrows():
-                    unique_index = f"{i}_{uuid.uuid4().hex[:6]}"
-                    movie_card(row, context="dl", index=unique_index)
-                    if "username" in st.session_state:
+                # Show recommendations in grid
+                num_movies = len(recs_df)
+                num_cols = 5
+                num_rows = (num_movies + num_cols - 1) // num_cols
+                
+                for row_idx in range(num_rows):
+                    cols = st.columns(num_cols)
+                    for col_idx in range(num_cols):
+                        idx = row_idx * num_cols + col_idx
+                        if idx < num_movies:
+                            movie = recs_df.iloc[idx]
+                            with cols[col_idx]:
+                                display_poster(movie['poster_path'], width=150, movie_id=movie['id'])
+                                st.caption(f"**{movie['title']}**")
+                                st.caption(f"⭐ {movie['vote_average']}")
+                
+                if "username" in st.session_state:
+                    for _, row in recs_df.iterrows():
                         log_event(username, row['title'], "recommended")
             else:
                 st.warning("No recommendations found. Try rating more movies.")
@@ -1825,6 +2016,12 @@ def render_dl_tab():
         except Exception as e:
             logging.error(f"DL recommendation error: {str(e)}")
             st.error(f"❌ Error: {str(e)}")
+    
+    # Show details if a poster was clicked
+    if st.session_state.poster_clicked:
+        st.button("View Details", key="view_details_btn", use_container_width=True)
+        if st.session_state.get('show_details'):
+            show_movie_details(st.session_state.poster_clicked)
 
 def render_profile_tab():
     """Render the user profile tab"""
@@ -1900,7 +2097,7 @@ def render_profile_tab():
         cols = st.columns(3)
         for idx, (_, row) in enumerate(st.session_state.dl_recs.head(3).iterrows()):
             with cols[idx]:
-                display_poster(row['poster_path'], class_name="poster-container", width=150)
+                display_poster(row['poster_path'], class_name="poster-container", width=150, movie_id=row['id'])
                 st.write(f"**{row['title']}**")
                 st.write(f"⭐ {row['vote_average']}")
     else:
@@ -1969,6 +2166,27 @@ def main():
     # High contrast mode toggle
     if st.session_state.high_contrast:
         st.markdown('<style>:root {--primary: #ff0000; --secondary: #00ffff; --accent: #ffff00; --background: #000000; --card: #111111; --text: #ffffff;}</style>', unsafe_allow_html=True)
+    
+    # Add JavaScript for poster click handling
+    st.markdown("""
+    <script>
+        function streamlitSetPosterClicked(movieId) {
+            const data = {movie_id: movieId};
+            parent.window.postMessage(data, "*");
+        }
+        
+        window.addEventListener("message", (event) => {
+            if (event.data && event.data.movie_id) {
+                Streamlit.setComponentValue(event.data.movie_id);
+            }
+        });
+    </script>
+    """, unsafe_allow_html=True)
+    
+    # Handle poster click events
+    poster_clicked = st.session_state.get('poster_clicked')
+    if poster_clicked:
+        st.session_state.show_details = True
     
     if not st.session_state.logged_in:
         render_login_signup()
@@ -2241,6 +2459,16 @@ def load_styles():
             width: 100%;
             border-radius: 10px;
             box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+        }
+        
+        /* Details card styling */
+        .movie-details-card {
+            background: var(--card);
+            border-radius: 16px;
+            padding: 20px;
+            margin-top: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            border-left: 4px solid var(--accent);
         }
         
         /* Responsive adjustments */
