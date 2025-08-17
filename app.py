@@ -265,7 +265,7 @@ def fetch_movie_details(movie_id, api_key):
             'vote_count': data.get('vote_count', 0),
             'popularity': data.get('popularity', 0),
             'budget': data.get('budget', 0),
-            'genres': ', '.join(genres),
+            'genres': ', '.join(genres) if genres else "Unknown",
             'director': director,
             'actors': actors,
             'poster_path': poster_path,
@@ -391,6 +391,11 @@ def fetch_popular_web_series(api_key, num_series=30):
             if not overview or overview.strip() == "":
                 overview = "No overview available."
             
+            # Extract genres
+            genres = []
+            if 'genres' in tv_data:
+                genres = [g['name'] for g in tv_data.get('genres', [])]
+            
             detailed_series.append({
                 'id': tv_data['id'],
                 'title': tv_data.get('name', 'Unknown'),
@@ -399,7 +404,7 @@ def fetch_popular_web_series(api_key, num_series=30):
                 'vote_average': tv_data.get('vote_average', 0),
                 'vote_count': tv_data.get('vote_count', 0),
                 'popularity': tv_data.get('popularity', 0),
-                'genres': ', '.join([g['name'] for g in tv_data.get('genres', [])]),
+                'genres': ', '.join(genres),
                 'poster_path': tv_data.get('poster_path', None),
                 'type': 'Web Series',
                 'seasons': tv_data.get('number_of_seasons', 1),
@@ -492,10 +497,26 @@ def load_data(api_key):
         # Remove duplicates
         movies_df = movies_df.drop_duplicates(subset=['id'])
         
-        # Load ratings data
-        ratings_df = pd.read_csv('ratings.csv')
+        # Load ratings data - with column validation
+        ratings_df = pd.DataFrame(columns=['userId', 'movieId', 'rating'])
+        if os.path.exists('ratings.csv'):
+            ratings_df = pd.read_csv('ratings.csv')
+            # Rename columns to match expected format
+            column_map = {}
+            if 'user_id' in ratings_df.columns:
+                column_map['user_id'] = 'userId'
+            if 'movie_id' in ratings_df.columns:
+                column_map['movie_id'] = 'movieId'
+            if 'ratings' in ratings_df.columns:
+                column_map['ratings'] = 'rating'
+            ratings_df = ratings_df.rename(columns=column_map)
+            
+            # Ensure required columns exist
+            if not all(col in ratings_df.columns for col in ['userId', 'movieId', 'rating']):
+                st.error("Ratings file has incorrect columns. Using empty DataFrame.")
+                ratings_df = pd.DataFrame(columns=['userId', 'movieId', 'rating'])
         
-        # Precompute TF-IDF and similarity
+        # Precompute TF-IDF and similarity - with overview validation
         tfidf = TfidfVectorizer(stop_words='english')
         overviews = movies_df['overview'].fillna('').astype(str)
         tfidf_matrix = tfidf.fit_transform(overviews)
@@ -547,12 +568,19 @@ def load_data(api_key):
             'indices': indices,
             'embeddings': embeddings,
             'faiss_index': index,
-            'genre_set': sorted(genre_set)
+            'genre_set': sorted(genre_set) if genre_set else []
         }
     except Exception as e:
         logging.error(f"Error loading data: {str(e)}")
         st.error(f"Error loading data: {str(e)}")
-        return pd.DataFrame(), pd.DataFrame(), {}
+        return pd.DataFrame(), pd.DataFrame(), {
+            'tfidf_matrix': None,
+            'cosine_sim': None,
+            'indices': None,
+            'embeddings': None,
+            'faiss_index': None,
+            'genre_set': []
+        }
 
 # =========================================
 # MODULE 4: USER MANAGEMENT
@@ -690,7 +718,18 @@ def train_dl_model():
         from surprise import Dataset, Reader, SVD
         from surprise.model_selection import train_test_split
 
-        ratings_df = st.session_state.cached_data[1] if st.session_state.cached_data else pd.read_csv('ratings.csv')
+        ratings_df = st.session_state.cached_data[1] if st.session_state.cached_data else pd.DataFrame(columns=['userId', 'movieId', 'rating'])
+        
+        # Check if we have enough data
+        if ratings_df.empty or len(ratings_df) < 100:
+            st.warning("Insufficient ratings data. Using content-based recommendations only.")
+            return None
+        
+        # Ensure we have the required columns
+        required_columns = ['userId', 'movieId', 'rating']
+        if not all(col in ratings_df.columns for col in required_columns):
+            st.error("Ratings data is missing required columns. Using content-based recommendations only.")
+            return None
         
         reader = Reader(rating_scale=(0.5, 5))
         data = Dataset.load_from_df(ratings_df[['userId', 'movieId', 'rating']], reader)
@@ -749,7 +788,7 @@ def advanced_hybrid_recommendation(title=None, user_id=None, top_n=10, selected_
                 # Apply genre filter
                 if selected_genres:
                     results = results[results['genres'].apply(
-                        lambda g: any(genre in g.split(', ') for genre in selected_genres)
+                        lambda g: any(genre in g.split(', ') for genre in selected_genres) if isinstance(g, str) else False
                     )]
                 
                 # Sort by release date
@@ -766,7 +805,7 @@ def advanced_hybrid_recommendation(title=None, user_id=None, top_n=10, selected_
                 # Apply genre filter
                 if selected_genres:
                     results = results[results['genres'].apply(
-                        lambda g: any(genre in g.split(', ') for genre in selected_genres)
+                        lambda g: any(genre in g.split(', ') for genre in selected_genres) if isinstance(g, str) else False
                     )]
                 
                 # Sort by release date
@@ -785,7 +824,7 @@ def advanced_hybrid_recommendation(title=None, user_id=None, top_n=10, selected_
         sim_scores = list(enumerate(precomputed['cosine_sim'][idx]))
         
         # Collaborative filtering predictions
-        if user_id:
+        if user_id and dl_model is not None:
             predictions = []
             for i, row in movies_df.iterrows():
                 pred = dl_model.predict(user_id, row['id'])
@@ -796,10 +835,10 @@ def advanced_hybrid_recommendation(title=None, user_id=None, top_n=10, selected_
         # Combine scores
         combined = []
         max_content = max(score for _, score in sim_scores)
-        max_collab = max(score for _, score in predictions) if user_id else 1
+        max_collab = max(score for _, score in predictions) if user_id and dl_model is not None else 1
         
         for (i, content_score), (_, collab_score) in zip(sim_scores, predictions):
-            if user_id:
+            if user_id and dl_model is not None:
                 combined_score = (0.6 * (content_score / max_content)) + (0.4 * (collab_score / max_collab))
             else:
                 combined_score = content_score / max_content
@@ -813,7 +852,7 @@ def advanced_hybrid_recommendation(title=None, user_id=None, top_n=10, selected_
         # Apply genre filter
         if selected_genres:
             results = results[results['genres'].apply(
-                lambda g: any(genre in g.split(', ') for genre in selected_genres)
+                lambda g: any(genre in g.split(', ') for genre in selected_genres) if isinstance(g, str) else False
             )]
         
         # Apply actor/director filter
@@ -837,7 +876,7 @@ def advanced_hybrid_recommendation(title=None, user_id=None, top_n=10, selected_
             mood_genres = mood_mapping.get(mood, [])
             if mood_genres:
                 results = results[results['genres'].apply(
-                    lambda g: any(genre in g.split(', ') for genre in mood_genres)
+                    lambda g: any(genre in g.split(', ') for genre in mood_genres) if isinstance(g, str) else False
                 )]
         
         # Sort by release date
@@ -882,7 +921,7 @@ def get_personalized_recommendations(top_n=5):
             # Filter by preferred genres
             if preferred_genres:
                 results = results[results['genres'].apply(
-                    lambda g: any(genre in g.split(', ') for genre in preferred_genres)
+                    lambda g: any(genre in g.split(', ') for genre in preferred_genres) if isinstance(g, str) else False
                 )]
             
             # Filter by preferred era
@@ -1158,9 +1197,10 @@ def render_taste_preferences_form():
         
         # Favorite genres
         st.subheader("Favorite Genres")
+        available_genres = precomputed.get('genre_set', [])
         selected_genres = st.multiselect(
             "Select your favorite genres (select up to 5)", 
-            precomputed['genre_set'],
+            available_genres,
             default=st.session_state.user_preferences.get('preferred_genres', []),
             max_selections=5
         )
@@ -1172,7 +1212,6 @@ def render_taste_preferences_form():
             "Which era of movies do you prefer?",
             era_options,
             index=era_options.index(st.session_state.user_preferences.get('preferred_era', "Any"))
-        )
         
         # Favorite actors
         st.subheader("Favorite Actors/Actresses")
@@ -1420,8 +1459,8 @@ def render_genre_tab():
     movies_df, _, precomputed = st.session_state.cached_data
     st.subheader("🎯 Discover by Genre")
     # Get available genres
-    available_genres = precomputed['genre_set']
-    valid_defaults = ["Action", "Comedy"]
+    available_genres = precomputed.get('genre_set', [])
+    valid_defaults = ["Action", "Comedy"] if available_genres else []
     
     selected_genres = st.multiselect(
         "Select genres", 
@@ -1434,7 +1473,7 @@ def render_genre_tab():
         try:
             # Use exact match filtering
             filtered = movies_df[movies_df['genres'].apply(
-                lambda g: any(genre in g.split(', ') for genre in selected_genres)
+                lambda g: any(genre in g.split(', ') for genre in selected_genres) if isinstance(g, str) else False
             )]
             
             # Validation for empty results
@@ -1482,7 +1521,7 @@ def render_latest_tab():
     
     if not current_year_movies.empty:
         # Genre filter
-        selected_genres = st.multiselect("Filter by genres", precomputed['genre_set'], key="latest_genre_filter")
+        selected_genres = st.multiselect("Filter by genres", precomputed.get('genre_set', []), key="latest_genre_filter")
         
         if selected_genres:
             def genre_filter(genres_str):
@@ -1528,13 +1567,16 @@ def render_analytics_tab():
                         genre_count[clean_genre] += 1
         
         # Create DataFrame from genre_count
-        genre_df = pd.DataFrame(list(genre_count.items()), columns=['Genre', 'Count'])
-        genre_df = genre_df.sort_values('Count', ascending=False)
-        
-        fig, ax = plt.subplots(figsize=(10, 6))
-        sns.barplot(x='Count', y='Genre', data=genre_df.head(15), palette="viridis", ax=ax)
-        ax.set_title("Top 15 Movie Genres")
-        st.pyplot(fig)
+        if genre_count:
+            genre_df = pd.DataFrame(list(genre_count.items()), columns=['Genre', 'Count'])
+            genre_df = genre_df.sort_values('Count', ascending=False)
+            
+            fig, ax = plt.subplots(figsize=(10, 6))
+            sns.barplot(x='Count', y='Genre', data=genre_df.head(15), palette="viridis", ax=ax)
+            ax.set_title("Top 15 Movie Genres")
+            st.pyplot(fig)
+        else:
+            st.info("No genre data available")
 
     
     with tab2:
@@ -1542,35 +1584,41 @@ def render_analytics_tab():
         fig, ax = plt.subplots(1, 2, figsize=(14, 5))
         
         # Rating histogram
-        sns.histplot(movies_df['vote_average'].dropna(), bins=20, kde=True, ax=ax[0], color='skyblue')
-        ax[0].set_title("Vote Average Distribution")
-        ax[0].set_xlabel("Rating")
-        ax[0].set_ylabel("Frequency")
+        if 'vote_average' in movies_df.columns:
+            sns.histplot(movies_df['vote_average'].dropna(), bins=20, kde=True, ax=ax[0], color='skyblue')
+            ax[0].set_title("Vote Average Distribution")
+            ax[0].set_xlabel("Rating")
+            ax[0].set_ylabel("Frequency")
         
         # Rating vs. Budget
-        budget_movies = movies_df[movies_df['budget'] > 0]
-        sample_size = min(500, len(budget_movies))
-        budget_sample = budget_movies.sample(sample_size)
-        sns.scatterplot(x='vote_average', y='budget', data=budget_sample, ax=ax[1], alpha=0.6)
-        ax[1].set_title("Rating vs. Budget")
-        ax[1].set_xlabel("Rating")
-        ax[1].set_ylabel("Budget (Millions)")
-        ax[1].set_yscale('log')
+        if 'budget' in movies_df.columns and 'vote_average' in movies_df.columns:
+            budget_movies = movies_df[movies_df['budget'] > 0]
+            sample_size = min(500, len(budget_movies))
+            if sample_size > 0:
+                budget_sample = budget_movies.sample(sample_size)
+                sns.scatterplot(x='vote_average', y='budget', data=budget_sample, ax=ax[1], alpha=0.6)
+                ax[1].set_title("Rating vs. Budget")
+                ax[1].set_xlabel("Rating")
+                ax[1].set_ylabel("Budget (Millions)")
+                ax[1].set_yscale('log')
         
         st.pyplot(fig)
     
     with tab3:
         st.subheader("☁️ Overview Word Cloud")
-        text = " ".join(movies_df['overview'].dropna().astype(str))
-        
-        if text:
-            wordcloud = WordCloud(width=800, height=400, background_color='black').generate(text)
-            fig, ax = plt.subplots(figsize=(12, 8))
-            ax.imshow(wordcloud, interpolation='bilinear')
-            ax.axis('off')
-            st.pyplot(fig)
+        if 'overview' in movies_df.columns:
+            text = " ".join(movies_df['overview'].dropna().astype(str))
+            
+            if text:
+                wordcloud = WordCloud(width=800, height=400, background_color='black').generate(text)
+                fig, ax = plt.subplots(figsize=(12, 8))
+                ax.imshow(wordcloud, interpolation='bilinear')
+                ax.axis('off')
+                st.pyplot(fig)
+            else:
+                st.warning("No overview text available")
         else:
-            st.warning("No overview text available")
+            st.warning("No overview data available")
 
 def render_actor_director_tab():
     """Render the actor/director tab"""
@@ -1621,8 +1669,8 @@ def render_hybrid_tab():
     movies_df, _, precomputed = st.session_state.cached_data
     
     # Movie type selection
-    available_genres = precomputed['genre_set']
-    valid_defaults = ["Action", "Comedy"]
+    available_genres = precomputed.get('genre_set', [])
+    valid_defaults = ["Action", "Comedy"] if available_genres else []
     
     selected_types = st.multiselect(
         "Filter by movie types", 
@@ -1743,9 +1791,13 @@ def render_dl_tab():
             
             # Predict ratings
             predictions = []
-            for idx, movie_id in enumerate(all_movie_ids):
-                pred = dl_model.predict(user_id, movie_id)
-                predictions.append((movie_id, pred.est))
+            if dl_model is not None:
+                for idx, movie_id in enumerate(all_movie_ids):
+                    pred = dl_model.predict(user_id, movie_id)
+                    predictions.append((movie_id, pred.est))
+            else:
+                st.warning("Deep learning model not available. Using content-based recommendations.")
+                predictions = [(mid, 0) for mid in all_movie_ids]
             
             # Sort predictions
             predictions.sort(key=lambda x: x[1], reverse=True)
