@@ -207,14 +207,7 @@ def fetch_movie_details(movie_id, api_key):
     """Fetch detailed movie info including credits"""
     try:
         url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={api_key}&append_to_response=credits"
-        response = requests.get(url, timeout=10)
-        
-        # Validate API response
-        if response.status_code != 200:
-            st.error(f"TMDB API error for movie {movie_id}: {response.status_code} - {response.text}")
-            return None
-        
-        data = response.json()
+        data = requests.get(url, timeout=10).json()
         
         # Extract director
         director = "Unknown"
@@ -255,22 +248,7 @@ def fetch_movie_details(movie_id, api_key):
         }
     except Exception as e:
         st.error(f"Error fetching details for movie {movie_id}: {str(e)}")
-        # Return a default skeleton so callers don't break (ensures 'overview' exists)
-        return {
-            'id': movie_id,
-            'title': 'Unknown Title',
-            'release_date': '',
-            'overview': '',
-            'vote_average': 0,
-            'vote_count': 0,
-            'popularity': 0,
-            'budget': 0,
-            'genres': '',
-            'director': 'Unknown',
-            'actors': [],
-            'poster_path': None,
-            'original_language': 'en'
-        }
+        return None
 
 @st.cache_data(ttl=3600*24)  # Cache for 24 hours
 def fetch_popular_movies_by_year(years, api_key, movies_per_year=50):
@@ -286,16 +264,8 @@ def fetch_popular_movies_by_year(years, api_key, movies_per_year=50):
                 'sort_by': 'popularity.desc',
                 'page': 1
             }
-            response = requests.get(url, params=params, timeout=10)
-            
-            # Validate API response
-            if response.status_code != 200:
-                st.error(f"TMDB API error for year {year}: {response.status_code} - {response.text}")
-                continue
-                
-            data = response.json()
-            movies = data.get('results', [])[:movies_per_year]
-            
+            response = requests.get(url, params=params, timeout=10).json()
+            movies = response.get('results', [])[:movies_per_year]
             all_movies.extend([{
                 'id': m['id'],
                 'title': m.get('title', 'Unknown Title'),
@@ -312,15 +282,8 @@ def fetch_popular_movies_by_year(years, api_key, movies_per_year=50):
                 'page': 1,
                 'with_original_language': 'hi'  # Hindi language
             }
-            bollywood_response = requests.get(url, params=bollywood_params, timeout=10)
-            
-            # Validate API response
-            if bollywood_response.status_code != 200:
-                st.error(f"TMDB API error for Bollywood {year}: {bollywood_response.status_code} - {bollywood_response.text}")
-                continue
-                
-            bollywood_data = bollywood_response.json()
-            bollywood_movies = bollywood_data.get('results', [])[:min(30, movies_per_year//2)]
+            bollywood_response = requests.get(url, params=bollywood_params, timeout=10).json()
+            bollywood_movies = bollywood_response.get('results', [])[:min(30, movies_per_year//2)]
             all_movies.extend([{
                 'id': m['id'],
                 'title': m.get('title', 'Unknown Title'),
@@ -340,14 +303,7 @@ def fetch_movies_by_actor(actor_name, api_key):
     try:
         # Search for person
         search_url = f"https://api.themoviedb.org/3/search/person?api_key={api_key}&query={actor_name}"
-        search_response = requests.get(search_url, timeout=10)
-        
-        # Validate API response
-        if search_response.status_code != 200:
-            st.error(f"TMDB API error for actor {actor_name}: {search_response.status_code} - {search_response.text}")
-            return []
-            
-        search_data = search_response.json()
+        search_data = requests.get(search_url, timeout=10).json()
         
         if not search_data.get('results'):
             return []
@@ -356,14 +312,7 @@ def fetch_movies_by_actor(actor_name, api_key):
         
         # Get person credits
         credits_url = f"https://api.themoviedb.org/3/person/{person_id}/movie_credits?api_key={api_key}"
-        credits_response = requests.get(credits_url, timeout=10)
-        
-        # Validate API response
-        if credits_response.status_code != 200:
-            st.error(f"TMDB API error for person {person_id}: {credits_response.status_code} - {credits_response.text}")
-            return []
-            
-        credits_data = credits_response.json()
+        credits_data = requests.get(credits_url, timeout=10).json()
         
         # Get movies where person is actor
         movies = []
@@ -400,28 +349,14 @@ def fetch_popular_web_series(api_key, num_series=30):
     """Fetch popular TV shows (web series)"""
     try:
         url = f"https://api.themoviedb.org/3/tv/popular?api_key={api_key}"
-        response = requests.get(url, timeout=10)
-        
-        # Validate API response
-        if response.status_code != 200:
-            st.error(f"TMDB API error for web series: {response.status_code} - {response.text}")
-            return []
-            
-        data = response.json()
-        series_list = data.get('results', [])[:num_series]
+        response = requests.get(url, timeout=10).json()
+        series_list = response.get('results', [])[:num_series]
         
         detailed_series = []
         for series in series_list:
             # Get TV show details
             tv_url = f"https://api.themoviedb.org/3/tv/{series['id']}?api_key={api_key}"
-            tv_response = requests.get(tv_url, timeout=10)
-            
-            # Validate API response
-            if tv_response.status_code != 200:
-                st.error(f"TMDB API error for series {series['id']}: {tv_response.status_code} - {tv_response.text}")
-                continue
-                
-            tv_data = tv_response.json()
+            tv_data = requests.get(tv_url, timeout=10).json()
             
             detailed_series.append({
                 'id': tv_data['id'],
@@ -445,26 +380,9 @@ def fetch_popular_web_series(api_key, num_series=30):
         st.error(f"Error fetching web series: {str(e)}")
         return []
 
-@st.cache_data(ttl=3600*24)
-def load_data():
+@st.cache_data
+def load_data(api_key):
     """Load and cache movie data with progress tracking"""
-    try:
-        # Get API key safely
-        api_key = st.secrets["TMDB_API_KEY"]
-        
-        # Validate API key
-        test_url = f"https://api.themoviedb.org/3/movie/550?api_key={api_key}"
-        test_response = requests.get(test_url, timeout=10)
-        if test_response.status_code != 200:
-            st.error(f"TMDB API key validation failed: {test_response.status_code} - {test_response.text}")
-            return pd.DataFrame(), pd.DataFrame(), {}
-    except KeyError:
-        st.error("TMDB_API_KEY not found in secrets. Please set your API key.")
-        return pd.DataFrame(), pd.DataFrame(), {}
-    except Exception as e:
-        st.error(f"API connection error: {str(e)}")
-        return pd.DataFrame(), pd.DataFrame(), {}
-    
     # Show loading progress
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -532,49 +450,15 @@ def load_data():
             progress = (i + 1) / len(movies_list) * 0.7 + 0.3
             progress_bar.progress(progress)
             status_text.text(f"Loading movie data... {int(progress*100)}%")
-
-    # --- Defensive check: how many detailed movies we actually gathered ---
-    st.write("Fetched detailed movie count:", len(detailed_movies))
-
-    # If nothing was fetched, return safe empty structures (prevents KeyError on 'overview')
-    if len(detailed_movies) == 0:
-        st.error("No movie details were fetched. Check your TMDB API key, network, or rate limits.")
-        empty_df = pd.DataFrame(columns=[
-            'id','title','release_date','overview','vote_average','vote_count',
-            'popularity','budget','genres','director','actors','poster_path','original_language',
-            'is_bollywood', 'is_web_series'  # Added to prevent future errors
-        ])
-        
-        # Create an empty ratings DataFrame with required columns
-        ratings_df = pd.DataFrame(columns=['userId', 'movieId', 'rating', 'timestamp'])
-        return empty_df, ratings_df, {
-            'tfidf_matrix': None,
-            'cosine_sim': None,
-            'indices': pd.Series(dtype=int),
-            'embeddings': None,
-            'faiss_index': None,
-            'genre_set': []
-        }
-
+    
     # Create DataFrame
     movies_df = pd.DataFrame(detailed_movies)
-
-    # ensure overview exists so TF-IDF won't KeyError
-    if 'overview' not in movies_df.columns:
-        movies_df['overview'] = ''
-
-    # load ratings (safe)
-    try:
-        ratings_df = pd.read_csv('ratings.csv')
-        
-        # Check if the required columns are present
-        required_columns = ['userId', 'movieId', 'rating']
-        if not all(col in ratings_df.columns for col in required_columns):
-            st.warning("ratings.csv does not have the required columns. Creating an empty DataFrame.")
-            ratings_df = pd.DataFrame(columns=['userId', 'movieId', 'rating', 'timestamp'])
-    except Exception as e:
-        st.warning(f"ratings.csv not found or unreadable — continuing without ratings. Error: {str(e)}")
-        ratings_df = pd.DataFrame(columns=['userId', 'movieId', 'rating', 'timestamp'])
+    
+    # Remove duplicates
+    movies_df = movies_df.drop_duplicates(subset=['id'])
+    
+    # Load ratings data
+    ratings_df = pd.read_csv('ratings.csv')
     
     # Precompute TF-IDF and similarity
     tfidf = TfidfVectorizer(stop_words='english')
@@ -763,19 +647,8 @@ def train_dl_model():
 
         ratings_df = st.session_state.cached_data[1] if st.session_state.cached_data else pd.read_csv('ratings.csv')
         
-        # Check if ratings_df has the required columns
-        required_cols = ['userId', 'movieId', 'rating']
-        if not all(col in ratings_df.columns for col in required_cols):
-            st.error(f"Ratings data is missing required columns. Expected: {required_cols}, found: {ratings_df.columns.tolist()}")
-            return None
-        
-        # Check if ratings_df is empty
-        if ratings_df.empty:
-            st.error("Ratings data is empty. Cannot train model.")
-            return None
-
         reader = Reader(rating_scale=(0.5, 5))
-        data = Dataset.load_from_df(ratings_df[required_cols], reader)
+        data = Dataset.load_from_df(ratings_df[['userId', 'movieId', 'rating']], reader)
         trainset, _ = train_test_split(data, test_size=0.2, random_state=42)
 
         model = SVD(n_factors=50, n_epochs=10, lr_all=0.01, reg_all=0.02)
@@ -1974,7 +1847,8 @@ def main():
             # Load data if not already cached
             if st.session_state.cached_data is None:
                 with st.spinner("Loading movie data. This may take a few minutes..."):
-                    movies_df, ratings_df, precomputed = load_data()
+                    api_key = st.secrets["TMDB_API_KEY"]
+                    movies_df, ratings_df, precomputed = load_data(api_key)
                     st.session_state.cached_data = (movies_df, ratings_df, precomputed)
             
             # Load deep learning model
