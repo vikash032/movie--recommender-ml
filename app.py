@@ -429,7 +429,7 @@ def load_data(api_key):
         status_text.text("Loading movie data... 0%")
         
         # Fetch popular movies by year (2000-2025) - increased count
-        years = list(range(2000, 2026))
+        years = list(range(2000, 2025))
         movies_list = fetch_popular_movies_by_year(years, api_key, movies_per_year=50)
         total_movies = len(movies_list)
         
@@ -1670,7 +1670,7 @@ def render_hybrid_tab():
     
     # Movie type selection
     available_genres = precomputed.get('genre_set', [])
-    valid_defaults = ["Action", "Comedy"] if available_genres else []
+    valid_defaults = ["Family", "History"] if available_genres else []
     
     selected_types = st.multiselect(
         "Filter by movie types", 
