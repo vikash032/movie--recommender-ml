@@ -69,6 +69,8 @@ def initialize_session_state():
         st.session_state.poster_clicked = None
     if "show_details" not in st.session_state:
         st.session_state.show_details = False
+    if "details_movie_id" not in st.session_state:
+        st.session_state.details_movie_id = None
 
     # Define default user preferences structure
     DEFAULT_USER_PREFERENCES = {
@@ -1469,6 +1471,10 @@ def render_home_tab():
                 st.info("No login activity recorded yet.")
             if st.button("🔄 Refresh Logs"):
                 st.rerun()
+    
+    # Show details if a poster was clicked
+    if st.session_state.details_movie_id:
+        show_movie_details(st.session_state.details_movie_id)
 
 def render_search_tab():
     """Render the search tab content"""
@@ -1500,6 +1506,10 @@ def render_search_tab():
         except Exception as e:
             logging.error(f"Search error: {str(e)}")
             st.error(f"Error during search: {str(e)}")
+    
+    # Show details if a poster was clicked
+    if st.session_state.details_movie_id:
+        show_movie_details(st.session_state.details_movie_id)
 
 def render_popular_tab():
     """Render the popular movies tab"""
@@ -1539,29 +1549,12 @@ def render_popular_tab():
     
     # Display the slice
     st.write(f"📖 Showing {start_idx+1} - {min(end_idx, len(sorted_df))} of {len(sorted_df)} movies")
-    
-    # Show posters in grid
-    movies_in_page = sorted_df.iloc[start_idx:end_idx]
-    num_movies = len(movies_in_page)
-    num_cols = 5
-    num_rows = (num_movies + num_cols - 1) // num_cols
-    
-    for row_idx in range(num_rows):
-        cols = st.columns(num_cols)
-        for col_idx in range(num_cols):
-            idx = row_idx * num_cols + col_idx
-            if idx < num_movies:
-                movie = movies_in_page.iloc[idx]
-                with cols[col_idx]:
-                    display_poster(movie['poster_path'], width=150, movie_id=movie['id'])
-                    st.caption(f"**{movie['title']}**")
-                    st.caption(f"⭐ {movie['vote_average']}")
+    for _, row in sorted_df.iloc[start_idx:end_idx].iterrows():
+        movie_card(row, context="browse")
     
     # Show details if a poster was clicked
-    if st.session_state.poster_clicked:
-        st.button("View Details", key="view_details_btn", use_container_width=True)
-        if st.session_state.get('show_details'):
-            show_movie_details(st.session_state.poster_clicked)
+    if st.session_state.details_movie_id:
+        show_movie_details(st.session_state.details_movie_id)
 
 def render_genre_tab():
     """Render the genre filter tab"""
@@ -1598,27 +1591,18 @@ def render_genre_tab():
             start = (page-1) * num_per_page
             end = start + num_per_page
             
-            # Display results in grid
-            movies_in_page = filtered.iloc[start:end]
-            num_movies = len(movies_in_page)
-            num_cols = 5
-            num_rows = (num_movies + num_cols - 1) // num_cols
-            
-            for row_idx in range(num_rows):
-                cols = st.columns(num_cols)
-                for col_idx in range(num_cols):
-                    idx = row_idx * num_cols + col_idx
-                    if idx < num_movies:
-                        movie = movies_in_page.iloc[idx]
-                        with cols[col_idx]:
-                            display_poster(movie['poster_path'], width=150, movie_id=movie['id'])
-                            st.caption(f"**{movie['title']}**")
-                            st.caption(f"⭐ {movie['vote_average']}")
+            # Display results
+            for _, row in filtered.iloc[start:end].iterrows():
+                movie_card(row, context="genre")
         except Exception as e:
             logging.error(f"Genre filter error: {str(e)}")
             st.error(f"Error filtering by genre: {str(e)}")
     else:
         st.warning("Please select at least one genre")
+    
+    # Show details if a poster was clicked
+    if st.session_state.details_movie_id:
+        show_movie_details(st.session_state.details_movie_id)
 
 def render_latest_tab():
     """Render the latest releases tab"""
@@ -1665,30 +1649,15 @@ def render_latest_tab():
         start = (page-1) * num_per_page
         end = start + num_per_page
         
-        # Show movie cards in grid
-        movies_in_page = current_year_movies.iloc[start:end]
-        num_movies = len(movies_in_page)
-        num_cols = 5
-        num_rows = (num_movies + num_cols - 1) // num_cols
-        
-        for row_idx in range(num_rows):
-            cols = st.columns(num_cols)
-            for col_idx in range(num_cols):
-                idx = row_idx * num_cols + col_idx
-                if idx < num_movies:
-                    movie = movies_in_page.iloc[idx]
-                    with cols[col_idx]:
-                        display_poster(movie['poster_path'], width=150, movie_id=movie['id'])
-                        st.caption(f"**{movie['title']}**")
-                        st.caption(f"⭐ {movie['vote_average']}")
+        # Show movie cards
+        for _, row in current_year_movies.iloc[start:end].iterrows():
+            movie_card(row, context="latest", show_feedback=True)
     else:
         st.warning(f"No movies found for {selected_year} with selected genres.")
     
     # Show details if a poster was clicked
-    if st.session_state.poster_clicked:
-        st.button("View Details", key="view_details_btn", use_container_width=True)
-        if st.session_state.get('show_details'):
-            show_movie_details(st.session_state.poster_clicked)
+    if st.session_state.details_movie_id:
+        show_movie_details(st.session_state.details_movie_id)
 
 def render_analytics_tab():
     """Render the analytics tab"""
@@ -1760,6 +1729,10 @@ def render_analytics_tab():
                 st.warning("No overview text available")
         else:
             st.warning("No overview data available")
+    
+    # Show details if a poster was clicked
+    if st.session_state.details_movie_id:
+        show_movie_details(st.session_state.details_movie_id)
 
 def render_actor_director_tab():
     """Render the actor/director tab"""
@@ -1793,22 +1766,9 @@ def render_actor_director_tab():
                     start = (page-1) * num_per_page
                     end = start + num_per_page
                     
-                    # Display results in grid
-                    movies_in_page = results.iloc[start:end]
-                    num_movies = len(movies_in_page)
-                    num_cols = 5
-                    num_rows = (num_movies + num_cols - 1) // num_cols
-                    
-                    for row_idx in range(num_rows):
-                        cols = st.columns(num_cols)
-                        for col_idx in range(num_cols):
-                            idx = row_idx * num_cols + col_idx
-                            if idx < num_movies:
-                                movie = movies_in_page.iloc[idx]
-                                with cols[col_idx]:
-                                    display_poster(movie['poster_path'], width=150, movie_id=movie['id'])
-                                    st.caption(f"**{movie['title']}**")
-                                    st.caption(f"⭐ {movie['vote_average']}")
+                    # Display results
+                    for _, row in results.iloc[start:end].iterrows():
+                        movie_card(row, context="actor", show_feedback=True)
                 else:
                     st.warning(f"No movies found with {search_name}")
             except Exception as e:
@@ -1816,10 +1776,8 @@ def render_actor_director_tab():
                 st.error(f"Error searching for actor/director: {str(e)}")
     
     # Show details if a poster was clicked
-    if st.session_state.poster_clicked:
-        st.button("View Details", key="view_details_btn", use_container_width=True)
-        if st.session_state.get('show_details'):
-            show_movie_details(st.session_state.poster_clicked)
+    if st.session_state.details_movie_id:
+        show_movie_details(st.session_state.details_movie_id)
 
 def render_hybrid_tab():
     """Render the hybrid recommendations tab"""
@@ -1920,29 +1878,15 @@ def render_hybrid_tab():
                 # Show recommendation context
                 st.subheader(f"🌟 Recommendations {recommendation_basis}")
                 
-                # Show recommendations in grid
-                num_movies = len(results)
-                num_cols = 5
-                num_rows = (num_movies + num_cols - 1) // num_cols
-                
-                for row_idx in range(num_rows):
-                    cols = st.columns(num_cols)
-                    for col_idx in range(num_cols):
-                        idx = row_idx * num_cols + col_idx
-                        if idx < num_movies:
-                            movie = results.iloc[idx]
-                            with cols[col_idx]:
-                                display_poster(movie['poster_path'], width=150, movie_id=movie['id'])
-                                st.caption(f"**{movie['title']}**")
-                                st.caption(f"⭐ {movie['vote_average']}")
+                # Show recommendations
+                for _, row in results.iterrows():
+                    movie_card(row, context="hybrid")
             else:
                 st.warning("⚠️ No recommendations found matching your criteria")
     
     # Show details if a poster was clicked
-    if st.session_state.poster_clicked:
-        st.button("View Details", key="view_details_btn", use_container_width=True)
-        if st.session_state.get('show_details'):
-            show_movie_details(st.session_state.poster_clicked)
+    if st.session_state.details_movie_id:
+        show_movie_details(st.session_state.details_movie_id)
 
 def render_dl_tab():
     """Render the deep learning recommendations tab"""
@@ -1991,24 +1935,11 @@ def render_dl_tab():
                 if liked_movies:
                     st.write(f"✨ Based on your likes: **{', '.join(liked_movies[:3])}**")
                 
-                # Show recommendations in grid
-                num_movies = len(recs_df)
-                num_cols = 5
-                num_rows = (num_movies + num_cols - 1) // num_cols
-                
-                for row_idx in range(num_rows):
-                    cols = st.columns(num_cols)
-                    for col_idx in range(num_cols):
-                        idx = row_idx * num_cols + col_idx
-                        if idx < num_movies:
-                            movie = recs_df.iloc[idx]
-                            with cols[col_idx]:
-                                display_poster(movie['poster_path'], width=150, movie_id=movie['id'])
-                                st.caption(f"**{movie['title']}**")
-                                st.caption(f"⭐ {movie['vote_average']}")
-                
-                if "username" in st.session_state:
-                    for _, row in recs_df.iterrows():
+                # Show recommendations
+                for i, row in recs_df.iterrows():
+                    unique_index = f"{i}_{uuid.uuid4().hex[:6]}"
+                    movie_card(row, context="dl", index=unique_index)
+                    if "username" in st.session_state:
                         log_event(username, row['title'], "recommended")
             else:
                 st.warning("No recommendations found. Try rating more movies.")
@@ -2018,10 +1949,8 @@ def render_dl_tab():
             st.error(f"❌ Error: {str(e)}")
     
     # Show details if a poster was clicked
-    if st.session_state.poster_clicked:
-        st.button("View Details", key="view_details_btn", use_container_width=True)
-        if st.session_state.get('show_details'):
-            show_movie_details(st.session_state.poster_clicked)
+    if st.session_state.details_movie_id:
+        show_movie_details(st.session_state.details_movie_id)
 
 def render_profile_tab():
     """Render the user profile tab"""
@@ -2111,6 +2040,10 @@ def render_profile_tab():
         st.success("You have been logged out. Please login again.")
         time.sleep(2)
         st.rerun()
+    
+    # Show details if a poster was clicked
+    if st.session_state.details_movie_id:
+        show_movie_details(st.session_state.details_movie_id)
 
 def main_app():
     """Main application logic after login"""
@@ -2171,22 +2104,25 @@ def main():
     st.markdown("""
     <script>
         function streamlitSetPosterClicked(movieId) {
-            const data = {movie_id: movieId};
-            parent.window.postMessage(data, "*");
+            Streamlit.setComponentValue(movieId);
         }
-        
-        window.addEventListener("message", (event) => {
-            if (event.data && event.data.movie_id) {
-                Streamlit.setComponentValue(event.data.movie_id);
-            }
-        });
     </script>
     """, unsafe_allow_html=True)
     
+    # Create a placeholder for the component
+    poster_clicked = st.empty()
+    
     # Handle poster click events
-    poster_clicked = st.session_state.get('poster_clicked')
+    if 'details_movie_id' not in st.session_state:
+        st.session_state.details_movie_id = None
+    
+    # Check if a poster was clicked
+    if st.session_state.get('poster_clicked'):
+        st.session_state.details_movie_id = st.session_state.poster_clicked
+    
+    # Reset details if a new poster is clicked
     if poster_clicked:
-        st.session_state.show_details = True
+        st.session_state.details_movie_id = poster_clicked
     
     if not st.session_state.logged_in:
         render_login_signup()
