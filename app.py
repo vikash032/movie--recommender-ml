@@ -1381,7 +1381,6 @@ def render_home_tab():
                 st.info("No login activity recorded yet.")
             if st.button("🔄 Refresh Logs"):
                 st.rerun()
-
 def render_search_tab():
     """Render the search tab content"""
     movies_df, _, _ = st.session_state.cached_data
@@ -1389,25 +1388,24 @@ def render_search_tab():
     search_term = st.text_input("Search by title, genre, or keyword")
     
     if search_term:
-            # Search by title
-            title_results = movies_df[movies_df['title'].str.contains(search_term, case=False)]
-            
-            # Search by genre
-            genre_results = movies_df[movies_df['genres'].str.contains(search_term, case=False)]
-            
-            # Search by keyword in overview
-            keyword_results = movies_df[movies_df['overview'].str.contains(search_term, case=False)]
-            
-            # Combine results
-            results = pd.concat([title_results, genre_results, keyword_results]).drop_duplicates(subset=["id"])
+        # Search by title
+        title_results = movies_df[movies_df['title'].str.contains(search_term, case=False, na=False)]
+        
+        # Search by genre
+        genre_results = movies_df[movies_df['genres'].str.contains(search_term, case=False, na=False)]
+        
+        # Search by keyword in overview
+        keyword_results = movies_df[movies_df['overview'].str.contains(search_term, case=False, na=False)]
+        
+        # Combine results
+        results = pd.concat([title_results, genre_results, keyword_results]).drop_duplicates(subset=["id"])
 
-            
-            if not results.empty:
-                st.write(f"🔍 Found {len(results)} matches")
-                for _, row in results.head(10).iterrows():
-                    movie_card(row, show_feedback=True, context="search")
-            else:
-                st.warning("No movies found matching your search")
+        if not results.empty:
+            st.write(f"🔍 Found {len(results)} matches")
+            for _, row in results.head(10).iterrows():
+                movie_card(row, show_feedback=True, context="search")
+        else:
+            st.warning("No movies found matching your search")
 
 def render_popular_tab():
     """Render the popular movies tab"""
