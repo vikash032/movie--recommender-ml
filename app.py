@@ -1389,7 +1389,6 @@ def render_search_tab():
     search_term = st.text_input("Search by title, genre, or keyword")
     
     if search_term:
-        try:
             # Search by title
             title_results = movies_df[movies_df['title'].str.contains(search_term, case=False)]
             
