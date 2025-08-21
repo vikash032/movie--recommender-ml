@@ -430,7 +430,7 @@ def load_data(api_key):
         
         # Fetch popular movies by year (2000-2025) - increased count
         years = list(range(2000, 2025))
-        movies_list = fetch_popular_movies_by_year(years, api_key, movies_per_year=50)
+        movies_list = fetch_popular_movies_by_year(years, api_key, movies_per_year=70)
         total_movies = len(movies_list)
         
         # Add movies for all requested actors/actresses
