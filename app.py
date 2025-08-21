@@ -1409,9 +1409,6 @@ def render_search_tab():
                     movie_card(row, show_feedback=True, context="search")
             else:
                 st.warning("No movies found matching your search")
-        except Exception as e:
-            logging.error(f"Search error: {str(e)}")
-            st.error(f"Error during search: {str(e)}")
 
 def render_popular_tab():
     """Render the popular movies tab"""
