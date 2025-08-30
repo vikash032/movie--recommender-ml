@@ -67,14 +67,14 @@ def initialize_session_state():
         st.session_state.user_preferences_set = False
     if "show_debug" not in st.session_state:
         st.session_state.show_debug = False
-    if "movie_details_cache" not in st.session_state:
-        st.session_state.movie_details_cache = {}
-    if "tmdb_ratings_cache" not in st.session_state:
-        st.session_state.tmdb_ratings_cache = {}
+    if "movie_details" not in st.session_state:
+        st.session_state.movie_details = {}
+    if "tmdb_cache" not in st.session_state:
+        st.session_state.tmdb_cache = {}
     if "last_api_call" not in st.session_state:
         st.session_state.last_api_call = 0
-    if "ai_assistant_messages" not in st.session_state:
-        st.session_state.ai_assistant_messages = []
+    if "ai_chat_history" not in st.session_state:
+        st.session_state.ai_chat_history = []
 
     # Define default user preferences structure
     DEFAULT_USER_PREFERENCES = {
@@ -129,29 +129,17 @@ def log_event(user, movie, action):
         logging.error(f"Error logging event: {str(e)}")
         st.error(f"Error logging event: {str(e)}")
 
-def display_poster(poster_path, class_name="poster-container", width=200, movie_id=None, title=None):
+def display_poster(poster_path, class_name="poster-container", width=200, movie_id=None):
     """Display movie poster with lazy loading and error handling"""
     try:
         if poster_path:
             poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+            
             # Make poster clickable if movie_id is provided
-            if movie_id and title:
-                # Create a unique key for the button
-                button_key = f"poster_btn_{movie_id}_{uuid.uuid4().hex[:6]}"
-                # Use columns to center the button
-                col1, col2, col3 = st.columns([1, 2, 1])
-                with col2:
-                    if st.button("", key=button_key, 
-                                help=f"Click for details about {title}",
-                                use_container_width=True,
-                                on_click=show_movie_details, 
-                                args=(movie_id, title),
-                                type="secondary"):
-                        pass
-                
+            if movie_id:
                 st.markdown(
                     f"""
-                    <div class="{class_name}" style="width:{width}px; cursor:pointer;" onclick="document.getElementById('{button_key}').click()">
+                    <div class="{class_name}" style="width:{width}px; cursor:pointer;" onclick="streamlitScriptHandlerForMovie({movie_id})">
                         <img src="{poster_url}" class="poster-img" alt="Movie Poster" loading="lazy" 
                              onerror="this.onerror=null; this.src='https://via.placeholder.com/300x450?text=Poster+Not+Available';">
                     </div>
@@ -186,108 +174,6 @@ def display_poster(poster_path, class_name="poster-container", width=200, movie_
     )
     return False
 
-def show_movie_details(movie_id, title):
-    """Set the selected movie in session state"""
-    st.session_state.selected_movie = movie_id
-    st.session_state.selected_movie_title = title
-
-def render_movie_details(movie_id, title):
-    """Render detailed movie information in a modal"""
-    try:
-        # Fetch movie details with caching
-        movie_details = fetch_movie_details_with_cache(movie_id, st.secrets["TMDB_API_KEY"])
-        
-        if not movie_details:
-            st.error("Could not fetch movie details. Please try again later.")
-            return
-        
-        # Create modal-like UI
-        st.markdown("""
-        <style>
-        .modal-content {
-            background-color: var(--card);
-            border-radius: 15px;
-            padding: 20px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-            margin: 15px 0;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        
-        st.markdown(f'<div class="modal-content">', unsafe_allow_html=True)
-        
-        # Header with close button
-        col1, col2 = st.columns([5, 1])
-        with col1:
-            st.markdown(f"### {title}")
-        with col2:
-            if st.button("✕", key=f"close_{movie_id}"):
-                st.session_state.selected_movie = None
-                st.rerun()
-        
-        # Movie details
-        col1, col2 = st.columns([1, 2])
-        
-        with col1:
-            display_poster(movie_details.get('poster_path'), 
-                          class_name="poster-container", 
-                          width=250,
-                          movie_id=movie_id,
-                          title=title)
-            
-            # Real-time rating
-            rating = get_realtime_rating(movie_id, st.secrets["TMDB_API_KEY"])
-            if rating:
-                st.metric("TMDB Rating", f"{rating:.1f}/10")
-        
-        with col2:
-            # Basic info
-            st.write(f"**Release Date:** {movie_details.get('release_date', 'N/A')}")
-            st.write(f"**Director:** {movie_details.get('director', 'N/A')}")
-            
-            # Genres
-            genres = movie_details.get('genres', 'N/A')
-            if isinstance(genres, str):
-                genre_tags = " ".join([f"<span class='tag tag-genre'>{genre.strip()}</span>" for genre in genres.split(',')])
-                st.markdown(f"**Genres:** <div style='margin: 10px 0;'>{genre_tags}</div>", unsafe_allow_html=True)
-            
-            # Cast
-            actors = movie_details.get('actors', [])
-            if actors and isinstance(actors, list):
-                st.write(f"**Cast:** {', '.join(actors[:5])}")
-            
-            # Budget and revenue if available
-            budget = movie_details.get('budget', 0)
-            if budget and budget > 0:
-                st.write(f"**Budget:** {format_currency(budget)}")
-            
-            # Overview
-            st.write(f"**Overview:** {movie_details.get('overview', 'No overview available.')}")
-            
-            # User actions
-            if st.session_state.logged_in:
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    if st.button("👍 Like", key=f"like_detail_{movie_id}"):
-                        update_preferences('like', movie_id, "detail")
-                with col2:
-                    if st.button("👎 Dislike", key=f"dislike_detail_{movie_id}"):
-                        update_preferences('dislike', movie_id, "detail")
-                with col3:
-                    watchlist = st.session_state.user_preferences.get('watchlist', [])
-                    if title in watchlist:
-                        if st.button("❌ Remove Watchlist", key=f"remove_wl_detail_{movie_id}"):
-                            update_preferences('remove_from_watchlist', movie_id, "detail")
-                    else:
-                        if st.button("➕ Add to Watchlist", key=f"add_wl_detail_{movie_id}"):
-                            update_preferences('add_to_watchlist', movie_id, "detail")
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-    except Exception as e:
-        logging.error(f"Error rendering movie details: {str(e)}")
-        st.error(f"Error showing movie details: {str(e)}")
-
 def find_movie_by_title(title, movies_df):
     """Find movie by title with fuzzy matching"""
     try:
@@ -311,76 +197,109 @@ def find_movie_by_title(title, movies_df):
         st.error(f"Error finding movie: {str(e)}")
         return None
 
-def get_realtime_rating(movie_id, api_key):
-    """Get real-time rating from TMDB API with caching and rate limiting"""
+def rate_limit_api():
+    """Implement rate limiting for API calls"""
+    current_time = time.time()
+    if current_time - st.session_state.last_api_call < 0.1:  # 10 calls per second max
+        time.sleep(0.1 - (current_time - st.session_state.last_api_call))
+    st.session_state.last_api_call = time.time()
+
+def fetch_movie_rating(movie_id, api_key):
+    """Fetch real-time movie rating from TMDB"""
     try:
         # Check cache first
-        if movie_id in st.session_state.tmdb_ratings_cache:
-            cached_data = st.session_state.tmdb_ratings_cache[movie_id]
-            # Check if cache is still valid (5 minutes)
-            if time.time() - cached_data['timestamp'] < 300:
-                return cached_data['rating']
+        if movie_id in st.session_state.tmdb_cache:
+            return st.session_state.tmdb_cache[movie_id]
         
-        # Rate limiting - max 1 request per second
-        current_time = time.time()
-        if current_time - st.session_state.last_api_call < 1.0:
-            time.sleep(1.0 - (current_time - st.session_state.last_api_call))
-        
-        # Fetch from API
+        rate_limit_api()
         url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={api_key}"
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
         
-        # Update last API call time
-        st.session_state.last_api_call = time.time()
-        
-        # Extract rating
-        rating = data.get('vote_average', 0)
-        
-        # Cache the result
-        st.session_state.tmdb_ratings_cache[movie_id] = {
-            'rating': rating,
-            'timestamp': time.time()
+        # Extract rating info
+        rating_info = {
+            'vote_average': data.get('vote_average', 0),
+            'vote_count': data.get('vote_count', 0),
+            'popularity': data.get('popularity', 0)
         }
         
-        return rating
-        
-    except Exception as e:
-        logging.error(f"Error fetching real-time rating for movie {movie_id}: {str(e)}")
-        # Return cached value if available, even if expired
-        if movie_id in st.session_state.tmdb_ratings_cache:
-            return st.session_state.tmdb_ratings_cache[movie_id]['rating']
-        return 0
-
-def fetch_movie_details_with_cache(movie_id, api_key):
-    """Fetch movie details with caching"""
-    try:
-        # Check cache first
-        if movie_id in st.session_state.movie_details_cache:
-            cached_data = st.session_state.movie_details_cache[movie_id]
-            # Check if cache is still valid (24 hours)
-            if time.time() - cached_data['timestamp'] < 86400:
-                return cached_data['details']
-        
-        # Fetch from API
-        details = fetch_movie_details(movie_id, api_key)
-        
         # Cache the result
-        if details:
-            st.session_state.movie_details_cache[movie_id] = {
-                'details': details,
-                'timestamp': time.time()
-            }
-        
-        return details
-        
+        st.session_state.tmdb_cache[movie_id] = rating_info
+        return rating_info
     except Exception as e:
-        logging.error(f"Error fetching movie details with cache for movie {movie_id}: {str(e)}")
-        # Return cached value if available, even if expired
-        if movie_id in st.session_state.movie_details_cache:
-            return st.session_state.movie_details_cache[movie_id]['details']
-        return None
+        logging.error(f"Error fetching rating for movie {movie_id}: {str(e)}")
+        return {'vote_average': 0, 'vote_count': 0, 'popularity': 0}
+
+def show_movie_details(movie_id, api_key):
+    """Display detailed movie information in a modal"""
+    try:
+        # Check if we already have the details
+        if movie_id in st.session_state.movie_details:
+            movie_data = st.session_state.movie_details[movie_id]
+        else:
+            # Fetch from API
+            rate_limit_api()
+            url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={api_key}&append_to_response=credits"
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            movie_data = response.json()
+            st.session_state.movie_details[movie_id] = movie_data
+        
+        # Display modal
+        with st.expander("🎬 Movie Details", expanded=True):
+            col1, col2 = st.columns([1, 2])
+            
+            with col1:
+                if movie_data.get('poster_path'):
+                    poster_url = f"https://image.tmdb.org/t/p/w500{movie_data['poster_path']}"
+                    st.image(poster_url, use_column_width=True)
+                else:
+                    st.info("No poster available")
+            
+            with col2:
+                st.header(movie_data.get('title', 'Unknown Title'))
+                
+                # Real-time rating
+                rating_info = fetch_movie_rating(movie_id, api_key)
+                col_a, col_b, col_c = st.columns(3)
+                with col_a:
+                    st.metric("Rating", f"{rating_info['vote_average']:.1f}/10")
+                with col_b:
+                    st.metric("Votes", f"{rating_info['vote_count']:,}")
+                with col_c:
+                    st.metric("Popularity", f"{rating_info['popularity']:.1f}")
+                
+                # Basic info
+                st.write(f"**Release Date:** {movie_data.get('release_date', 'N/A')}")
+                st.write(f"**Runtime:** {movie_data.get('runtime', 'N/A')} minutes")
+                
+                # Genres
+                genres = [g['name'] for g in movie_data.get('genres', [])]
+                if genres:
+                    st.write(f"**Genres:** {', '.join(genres)}")
+                
+                # Overview
+                st.write(f"**Overview:** {movie_data.get('overview', 'No overview available.')}")
+                
+                # Director
+                director = "Unknown"
+                if 'credits' in movie_data and 'crew' in movie_data['credits']:
+                    for person in movie_data['credits']['crew']:
+                        if person['job'] == 'Director':
+                            director = person['name']
+                            break
+                st.write(f"**Director:** {director}")
+                
+                # Top cast
+                if 'credits' in movie_data and 'cast' in movie_data['credits']:
+                    cast = movie_data['credits']['cast'][:5]
+                    st.write("**Top Cast:**")
+                    for person in cast:
+                        st.write(f"- {person['name']} as {person.get('character', 'Unknown')}")
+    except Exception as e:
+        logging.error(f"Error showing movie details: {str(e)}")
+        st.error(f"Error loading movie details: {str(e)}")
 
 # =========================================
 # MODULE 3: DATA LOADING & CACHING
@@ -434,6 +353,11 @@ def fetch_realtime_data(api_key):
 def fetch_movie_details(movie_id, api_key):
     """Fetch detailed movie info including credits"""
     try:
+        # Check cache first
+        if movie_id in st.session_state.tmdb_cache:
+            return st.session_state.tmdb_cache[movie_id]
+        
+        rate_limit_api()
         url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={api_key}&append_to_response=credits"
         data = requests.get(url, timeout=10).json()
         
@@ -464,7 +388,7 @@ def fetch_movie_details(movie_id, api_key):
         if not overview or overview.strip() == "":
             overview = "No overview available."
         
-        return {
+        result = {
             'id': movie_id,
             'title': data.get('title', 'Unknown Title'),
             'release_date': data.get('release_date', ''),
@@ -479,6 +403,10 @@ def fetch_movie_details(movie_id, api_key):
             'poster_path': poster_path,
             'original_language': data.get('original_language', 'en')
         }
+        
+        # Cache the result
+        st.session_state.tmdb_cache[movie_id] = result
+        return result
     except Exception as e:
         logging.error(f"Error fetching details for movie {movie_id}: {str(e)}")
         st.error(f"Error fetching details for movie {movie_id}: {str(e)}")
@@ -705,6 +633,9 @@ def load_data(api_key):
         # Remove duplicates
         movies_df = movies_df.drop_duplicates(subset=['id'])
         
+        # Data validation
+        movies_df = validate_movie_data(movies_df)
+        
         # Load ratings data - with column validation
         ratings_df = pd.DataFrame(columns=['userId', 'movieId', 'rating'])
         if os.path.exists('ratings.csv'):
@@ -733,18 +664,15 @@ def load_data(api_key):
         
         # Generate embeddings
         model = load_model()
-        if model:
+        if model is not None:
             genres = movies_df['genres'].fillna('').astype(str)
             embeddings = model.encode(genres.tolist(), show_progress_bar=False)
             dim = embeddings.shape[1]
             index = faiss.IndexFlatL2(dim)
             index.add(np.array(embeddings))
         else:
-            # Fallback: create empty index
-            dim = 384  # Default dimension for all-MiniLM-L6-v2
-            embeddings = np.zeros((len(movies_df), dim))
-            index = faiss.IndexFlatL2(dim)
-            index.add(embeddings)
+            embeddings = np.zeros((len(movies_df), 384))
+            index = faiss.IndexFlatL2(384)
         
         # Add weighted score
         v = movies_df['vote_count'].fillna(0)
@@ -797,6 +725,31 @@ def load_data(api_key):
             'faiss_index': None,
             'genre_set': []
         }
+
+def validate_movie_data(movies_df):
+    """Validate and clean movie data"""
+    try:
+        # Ensure required columns exist
+        required_columns = ['id', 'title', 'release_date', 'overview', 'vote_average', 
+                           'vote_count', 'genres', 'director', 'actors', 'poster_path']
+        
+        for col in required_columns:
+            if col not in movies_df.columns:
+                movies_df[col] = None
+        
+        # Fill missing values
+        movies_df['title'] = movies_df['title'].fillna('Unknown Title')
+        movies_df['overview'] = movies_df['overview'].fillna('No overview available.')
+        movies_df['vote_average'] = movies_df['vote_average'].fillna(0)
+        movies_df['vote_count'] = movies_df['vote_count'].fillna(0)
+        movies_df['genres'] = movies_df['genres'].fillna('Unknown')
+        movies_df['director'] = movies_df['director'].fillna('Unknown')
+        movies_df['actors'] = movies_df['actors'].apply(lambda x: x if isinstance(x, list) else [])
+        
+        return movies_df
+    except Exception as e:
+        logging.error(f"Error validating movie data: {str(e)}")
+        return movies_df
 
 # =========================================
 # MODULE 4: USER MANAGEMENT
@@ -1286,11 +1239,8 @@ def movie_card(movie, show_feedback=True, context="default", index=0):
             
             col1, col2 = st.columns([1, 3])
             with col1:
-                # Use poster_path directly from movie data with clickable functionality
-                display_poster(movie.get('poster_path'), 
-                              class_name="poster-container",
-                              movie_id=movie['id'],
-                              title=movie['title'])
+                # Use poster_path directly from movie data
+                display_poster(movie.get('poster_path'), class_name="poster-container", movie_id=movie['id'])
             
             with col2:
                 st.subheader(movie['title'])
@@ -1305,9 +1255,9 @@ def movie_card(movie, show_feedback=True, context="default", index=0):
                 if isinstance(actors, list) and len(actors) > 0:
                     st.markdown(f"👥 **Cast:** {', '.join(actors)}")
                 
-                # Display real-time rating
-                rating = get_realtime_rating(movie['id'], st.secrets["TMDB_API_KEY"])
-                st.caption(f"⭐ {rating:.1f} | 🗳️ {movie['vote_count']} votes | 📅 {movie['release_date']}")
+                # Real-time rating
+                rating_info = fetch_movie_rating(movie['id'], st.secrets["TMDB_API_KEY"])
+                st.caption(f"⭐ {rating_info['vote_average']:.1f} | 🗳️ {rating_info['vote_count']} votes | 📅 {movie['release_date']}")
                 
                 # Display genres as tags
                 genres = movie['genres'].split(', ') if isinstance(movie['genres'], str) else []
@@ -1480,13 +1430,56 @@ def render_taste_preferences_form():
 # =========================================
 def render_discover_tab():
     """Render the Discover & Recommendations tab"""
-    # Show movie details if a movie is selected
-    if st.session_state.selected_movie:
-        render_movie_details(st.session_state.selected_movie, st.session_state.selected_movie_title)
-        if st.button("Back to Discover"):
-            st.session_state.selected_movie = None
-            st.rerun()
-        return
+    st.header("🎬 Discover & Recommendations")
+    
+    subtabs = st.tabs([
+        "Home", 
+        "Search", 
+        "Popular", 
+        "Genre Filter", 
+        "Latest Releases", 
+        "Actor/Director", 
+        "Hybrid", 
+        "Deep Learning",
+        "AI Assistant"
+    ])
+    
+    with subtabs[0]:
+        render_home_content()
+    with subtabs[1]:
+        render_search_content()
+    with subtabs[2]:
+        render_popular_content()
+    with subtabs[3]:
+        render_genre_content()
+    with subtabs[4]:
+        render_latest_content()
+    with subtabs[5]:
+        render_actor_director_content()
+    with subtabs[6]:
+        render_hybrid_content()
+    with subtabs[7]:
+        render_dl_content()
+    with subtabs[8]:
+        render_ai_assistant_content()
+
+def render_profile_tab():
+    """Render the Profile & Analytics tab"""
+    st.header("👤 Profile & Analytics")
+    
+    subtabs = st.tabs(["Profile", "Analytics", "Environmental Impact"])
+    
+    with subtabs[0]:
+        render_profile_content()
+    with subtabs[1]:
+        render_analytics_content()
+    with subtabs[2]:
+        render_environmental_impact_content()
+
+def render_home_content():
+    """Render the home content"""
+    # Get data
+    movies_df, _, precomputed = st.session_state.cached_data
     
     # Show taste preferences form if not set
     if not st.session_state.user_preferences_set:
@@ -1562,36 +1555,30 @@ def render_discover_tab():
         cols = st.columns(5)
         for idx, movie in enumerate(realtime_data['trending'][:5]):
             with cols[idx % 5]:
-                display_poster(movie.get('poster_path'), class_name="poster-container", width=150, 
-                              movie_id=movie['id'], title=movie['title'])
+                display_poster(movie.get('poster_path'), class_name="poster-container", width=150, movie_id=movie['id'])
                 st.caption(f"**{movie['title']}**")
-                rating = get_realtime_rating(movie['id'], st.secrets["TMDB_API_KEY"])
-                st.caption(f"⭐ {rating:.1f}")
+                st.caption(f"⭐ {movie.get('vote_average', 'N/A')}")
     
     if realtime_data['new_releases']:
         st.markdown("### 🆕 New Releases")
         cols = st.columns(5)
         for idx, movie in enumerate(realtime_data['new_releases'][:5]):
             with cols[idx % 5]:
-                display_poster(movie.get('poster_path'), class_name="poster-container", width=150,
-                              movie_id=movie['id'], title=movie['title'])
+                display_poster(movie.get('poster_path'), class_name="poster-container", width=150, movie_id=movie['id'])
                 st.caption(f"**{movie['title']}**")
                 st.caption(f"📅 {movie.get('release_date', 'N/A')}")
     
     # Bollywood section
     st.markdown("### 🎬 Bollywood Spotlight")
-    movies_df, _, _ = st.session_state.cached_data
     bollywood_movies = movies_df[movies_df['is_bollywood'] == True].sort_values('weighted_score', ascending=False).head(10)
     
     if not bollywood_movies.empty:
         cols = st.columns(5)
         for idx, (_, row) in enumerate(bollywood_movies.head(5).iterrows()):
             with cols[idx % 5]:
-                display_poster(row.get('poster_path'), class_name="poster-container", width=150,
-                              movie_id=row['id'], title=row['title'])
+                display_poster(row.get('poster_path'), class_name="poster-container", width=150, movie_id=row['id'])
                 st.caption(f"**{row['title']}**")
-                rating = get_realtime_rating(row['id'], st.secrets["TMDB_API_KEY"])
-                st.progress(rating / 10, text=f"⭐ {rating:.1f}")
+                st.progress(row['weighted_score'] / 10, text=f"⭐ {row['vote_average']}")
     else:
         st.info("No Bollywood movies available")
     
@@ -1607,8 +1594,22 @@ def render_discover_tab():
     else:
         st.info("Complete your taste preferences to get personalized recommendations")
     
-    # Search section
-    st.markdown("### 🔍 Search Movies")
+    # Admin Panel
+    if st.session_state.username == "Vic":
+        with st.expander("🛡️ Admin Panel - User Login Activity", expanded=False):
+            st.markdown("### 👨‍💼 User Login Logs")
+            if os.path.exists(LOGIN_ACTIVITY_FILE):
+                logs = pd.read_csv(LOGIN_ACTIVITY_FILE)
+                st.dataframe(logs.sort_values("Timestamp", ascending=False).head(10))
+            else:
+                st.info("No login activity recorded yet.")
+            if st.button("🔄 Refresh Logs"):
+                st.rerun()
+
+def render_search_content():
+    """Render the search content"""
+    movies_df, _, _ = st.session_state.cached_data
+    st.subheader("🔍 Search Movies")
     search_term = st.text_input("Search by title, genre, or keyword")
     
     if search_term:
@@ -1630,9 +1631,11 @@ def render_discover_tab():
                 movie_card(row, show_feedback=True, context="search")
         else:
             st.warning("No movies found matching your search")
-    
-    # Browse section
-    st.markdown("### 📂 Browse Movie Database")
+
+def render_popular_content():
+    """Render the popular movies content"""
+    movies_df, _, _ = st.session_state.cached_data
+    st.subheader("📂 Browse Movie Database")
     
     col1, col2 = st.columns([2, 1])
     with col1:
@@ -1669,10 +1672,11 @@ def render_discover_tab():
     st.write(f"📖 Showing {start_idx+1} - {min(end_idx, len(sorted_df))} of {len(sorted_df)} movies")
     for _, row in sorted_df.iloc[start_idx:end_idx].iterrows():
         movie_card(row, context="browse")
-    
-    # Genre filter section
-    st.markdown("### 🎯 Discover by Genre")
-    _, _, precomputed = st.session_state.cached_data
+
+def render_genre_content():
+    """Render the genre filter content"""
+    movies_df, _, precomputed = st.session_state.cached_data
+    st.subheader("🎯 Discover by Genre")
     # Get available genres
     available_genres = precomputed.get('genre_set', [])
     valid_defaults = ["Fantasy", "Adventure"] if available_genres else []
@@ -1712,9 +1716,11 @@ def render_discover_tab():
             st.error(f"Error filtering by genre: {str(e)}")
     else:
         st.warning("Please select at least one genre")
-    
-    # Latest releases section
-    st.markdown("### 🎬 Latest Movie Releases")
+
+def render_latest_content():
+    """Render the latest releases content"""
+    movies_df, _, precomputed = st.session_state.cached_data
+    st.subheader("🎬 Latest Movie Releases")
     
     # Year selector
     selected_year = st.selectbox("Select Year", list(range(2018, 2026)), index=2024-2018)
@@ -1734,7 +1740,7 @@ def render_discover_tab():
     
     if not current_year_movies.empty:
         # Genre filter
-        selected_genres = st.multiselect("Filter by genres", available_genres, key="latest_genre_filter")
+        selected_genres = st.multiselect("Filter by genres", precomputed.get('genre_set', []), key="latest_genre_filter")
         
         if selected_genres:
             def genre_filter(genres_str):
@@ -1761,9 +1767,82 @@ def render_discover_tab():
             movie_card(row, context="latest", show_feedback=True)
     else:
         st.warning(f"No movies found for {selected_year} with selected genres.")
+
+def render_analytics_content():
+    """Render the analytics content"""
+    movies_df, _, _ = st.session_state.cached_data
+    st.subheader("📊 Movie Analytics Dashboard")
     
-    # Actor/Director search section
-    st.markdown("### 🎭 Find Movies by Actor or Director")
+    tab1, tab2, tab3 = st.tabs(["Genre Analysis", "Rating Insights", "Word Cloud"])
+    
+    with tab1:
+        st.subheader("🎭 Genre Distribution")
+        genre_count = defaultdict(int)
+        for g_list in movies_df['genres']:
+            if isinstance(g_list, str):
+                for genre in g_list.split(', '):
+                    clean_genre = genre.strip()
+                    if clean_genre:
+                        genre_count[clean_genre] += 1
+        
+        # Create DataFrame from genre_count
+        if genre_count:
+            genre_df = pd.DataFrame(list(genre_count.items()), columns=['Genre', 'Count'])
+            genre_df = genre_df.sort_values('Count', ascending=False)
+            
+            fig, ax = plt.subplots(figsize=(10, 6))
+            sns.barplot(x='Count', y='Genre', data=genre_df.head(15), palette="viridis", ax=ax)
+            ax.set_title("Top 15 Movie Genres")
+            st.pyplot(fig)
+        else:
+            st.info("No genre data available")
+
+    
+    with tab2:
+        st.subheader("⭐ Rating Insights")
+        fig, ax = plt.subplots(1, 2, figsize=(14, 5))
+        
+        # Rating histogram
+        if 'vote_average' in movies_df.columns:
+            sns.histplot(movies_df['vote_average'].dropna(), bins=20, kde=True, ax=ax[0], color='skyblue')
+            ax[0].set_title("Vote Average Distribution")
+            ax[0].set_xlabel("Rating")
+            ax[0].set_ylabel("Frequency")
+        
+        # Rating vs. Budget
+        if 'budget' in movies_df.columns and 'vote_average' in movies_df.columns:
+            budget_movies = movies_df[movies_df['budget'] > 0]
+            sample_size = min(500, len(budget_movies))
+            if sample_size > 0:
+                budget_sample = budget_movies.sample(sample_size)
+                sns.scatterplot(x='vote_average', y='budget', data=budget_sample, ax=ax[1], alpha=0.6)
+                ax[1].set_title("Rating vs. Budget")
+                ax[1].set_xlabel("Rating")
+                ax[1].set_ylabel("Budget (Millions)")
+                ax[1].set_yscale('log')
+        
+        st.pyplot(fig)
+    
+    with tab3:
+        st.subheader("☁️ Overview Word Cloud")
+        if 'overview' in movies_df.columns:
+            text = " ".join(movies_df['overview'].dropna().astype(str))
+            
+            if text:
+                wordcloud = WordCloud(width=800, height=400, background_color='black').generate(text)
+                fig, ax = plt.subplots(figsize=(12, 8))
+                ax.imshow(wordcloud, interpolation='bilinear')
+                ax.axis('off')
+                st.pyplot(fig)
+            else:
+                st.warning("No overview text available")
+        else:
+            st.warning("No overview data available")
+
+def render_actor_director_content():
+    """Render the actor/director content"""
+    movies_df, _, _ = st.session_state.cached_data
+    st.subheader("🎭 Find Movies by Actor or Director")
     
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -1800,10 +1879,13 @@ def render_discover_tab():
             except Exception as e:
                 logging.error(f"Actor/director search error: {str(e)}")
                 st.error(f"Error searching for actor/director: {str(e)}")
-    
-    # Hybrid recommendations section
-    st.markdown("### 💡 Hybrid Recommendations")
+
+def render_hybrid_content():
+    """Render the hybrid recommendations content"""
+    st.subheader("💡 Hybrid Recommendations")
     st.info("Combines content-based filtering with collaborative filtering for personalized results")
+    
+    movies_df, _, precomputed = st.session_state.cached_data
     
     # Movie type selection
     available_genres = precomputed.get('genre_set', [])
@@ -1902,10 +1984,13 @@ def render_discover_tab():
                     movie_card(row, context="hybrid")
             else:
                 st.warning("⚠️ No recommendations found matching your criteria")
-    
-    # Deep learning recommendations section
-    st.markdown("### 🤖 Deep Learning Recommendations")
+
+def render_dl_content():
+    """Render the deep learning recommendations content"""
+    st.subheader("🤖 Deep Learning Recommendations")
     st.info("Personalized recommendations based on your taste profile")
+    
+    movies_df, _, _ = st.session_state.cached_data
     
     # Show user preferences context
     if st.session_state.user_preferences.get('liked_movies', []):
@@ -1959,21 +2044,9 @@ def render_discover_tab():
         except Exception as e:
             logging.error(f"DL recommendation error: {str(e)}")
             st.error(f"❌ Error: {str(e)}")
-    
-    # Admin Panel
-    if st.session_state.username == "Vic":
-        with st.expander("🛡️ Admin Panel - User Login Activity", expanded=False):
-            st.markdown("### 👨‍💼 User Login Logs")
-            if os.path.exists(LOGIN_ACTIVITY_FILE):
-                logs = pd.read_csv(LOGIN_ACTIVITY_FILE)
-                st.dataframe(logs.sort_values("Timestamp", ascending=False).head(10))
-            else:
-                st.info("No login activity recorded yet.")
-            if st.button("🔄 Refresh Logs"):
-                st.rerun()
 
-def render_profile_tab():
-    """Render the Profile & Analytics tab"""
+def render_profile_content():
+    """Render the user profile content"""
     st.subheader(f"👤 {st.session_state.username}'s Profile")
     
     # Accessibility toggle
@@ -2046,185 +2119,150 @@ def render_profile_tab():
         cols = st.columns(3)
         for idx, (_, row) in enumerate(st.session_state.dl_recs.head(3).iterrows()):
             with cols[idx]:
-                display_poster(row['poster_path'], class_name="poster-container", width=150,
-                              movie_id=row['id'], title=row['title'])
+                display_poster(row['poster_path'], class_name="poster-container", width=150, movie_id=row['id'])
                 st.write(f"**{row['title']}**")
-                rating = get_realtime_rating(row['id'], st.secrets["TMDB_API_KEY"])
-                st.write(f"⭐ {rating:.1f}")
+                st.write(f"⭐ {row['vote_average']}")
     else:
         st.info("No recommendations generated yet")
-    
-    # Analytics section
-    st.markdown("### 📊 Movie Analytics Dashboard")
-    
-    tab1, tab2, tab3 = st.tabs(["Genre Analysis", "Rating Insights", "Word Cloud"])
-    
-    with tab1:
-        st.subheader("🎭 Genre Distribution")
-        movies_df, _, _ = st.session_state.cached_data
-        genre_count = defaultdict(int)
-        for g_list in movies_df['genres']:
-            if isinstance(g_list, str):
-                for genre in g_list.split(', '):
-                    clean_genre = genre.strip()
-                    if clean_genre:
-                        genre_count[clean_genre] += 1
         
-        # Create DataFrame from genre_count
-        if genre_count:
-            genre_df = pd.DataFrame(list(genre_count.items()), columns=['Genre', 'Count'])
-            genre_df = genre_df.sort_values('Count', ascending=False)
-            
-            fig, ax = plt.subplots(figsize=(10, 6))
-            sns.barplot(x='Count', y='Genre', data=genre_df.head(15), palette="viridis", ax=ax)
-            ax.set_title("Top 15 Movie Genres")
-            st.pyplot(fig)
-        else:
-            st.info("No genre data available")
-
-    
-    with tab2:
-        st.subheader("⭐ Rating Insights")
-        fig, ax = plt.subplots(1, 2, figsize=(14, 5))
-        
-        # Rating histogram
-        if 'vote_average' in movies_df.columns:
-            sns.histplot(movies_df['vote_average'].dropna(), bins=20, kde=True, ax=ax[0], color='skyblue')
-            ax[0].set_title("Vote Average Distribution")
-            ax[0].set_xlabel("Rating")
-            ax[0].set_ylabel("Frequency")
-        
-        # Rating vs. Budget
-        if 'budget' in movies_df.columns and 'vote_average' in movies_df.columns:
-            budget_movies = movies_df[movies_df['budget'] > 0]
-            sample_size = min(500, len(budget_movies))
-            if sample_size > 0:
-                budget_sample = budget_movies.sample(sample_size)
-                sns.scatterplot(x='vote_average', y='budget', data=budget_sample, ax=ax[1], alpha=0.6)
-                ax[1].set_title("Rating vs. Budget")
-                ax[1].set_xlabel("Rating")
-                ax[1].set_ylabel("Budget (Millions)")
-                ax[1].set_yscale('log')
-        
-        st.pyplot(fig)
-    
-    with tab3:
-        st.subheader("☁️ Overview Word Cloud")
-        if 'overview' in movies_df.columns:
-            text = " ".join(movies_df['overview'].dropna().astype(str))
-            
-            if text:
-                wordcloud = WordCloud(width=800, height=400, background_color='black').generate(text)
-                fig, ax = plt.subplots(figsize=(12, 8))
-                ax.imshow(wordcloud, interpolation='bilinear')
-                ax.axis('off')
-                st.pyplot(fig)
-            else:
-                st.warning("No overview text available")
-        else:
-            st.warning("No overview data available")
-    
     # Clear preferences button
     st.markdown("---")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🗑️ Clear All Preferences", use_container_width=True):
-            st.session_state.user_preferences = {
-                'liked_movies': [],
-                'disliked_movies': [],
-                'preferred_genres': [],
-                'watchlist': [],
-                'mood_preferences': [],
-                'preferred_era': "Any",
-                'preferred_actors': [],
-                'preferred_directors': []
-            }
-            st.session_state.user_vector = None
-            st.session_state.user_preferences_set = False
-            save_user_profile(st.session_state.username)
-            st.success("Preferences cleared!")
-            st.rerun()
-    with col2:
-        if st.button("🔒 Logout", use_container_width=True):
-            st.session_state.logged_in = False
-            st.session_state.username = ""
-            st.success("You have been logged out. Please login again.")
-            time.sleep(2)
-            st.rerun()
+    if st.button("🗑️ Clear All Preferences", use_container_width=True):
+        st.session_state.user_preferences = {
+            'liked_movies': [],
+            'disliked_movies': [],
+            'preferred_genres': [],
+            'watchlist': [],
+            'mood_preferences': [],
+            'preferred_era': "Any",
+            'preferred_actors': [],
+            'preferred_directors': []
+        }
+        st.session_state.user_vector = np.zeros(384)
+        st.session_state.co2_savings = 0.0
+        save_user_profile(st.session_state.username)
+        st.success("Preferences cleared!")
+        st.rerun()
+        
+    # Logout button
+    if st.button("🔒 Logout", use_container_width=True):
+        st.session_state.logged_in = False
+        st.session_state.username = ""
+        st.success("You have been logged out. Please login again.")
+        time.sleep(2)
+        st.rerun()
 
-def render_ai_assistant_tab():
-    """Render the AI Assistant tab with Groq integration"""
-    st.subheader("🤖 AI Movie Assistant")
-    st.info("Chat with our AI assistant to get personalized movie recommendations based on your preferences")
+def render_environmental_impact_content():
+    """Render the environmental impact content"""
+    st.subheader("🌱 Environmental Impact")
     
-    # Initialize chat messages if not exists
-    if not st.session_state.ai_assistant_messages:
-        st.session_state.ai_assistant_messages = [{
-            "role": "assistant", 
-            "content": "Hi! I'm your AI movie assistant. I can help you find great movies based on your preferences. What kind of movies are you interested in today?"
-        }]
+    # Calculate CO2 savings
+    watchlist_count = len(st.session_state.user_preferences.get('watchlist', []))
+    co2_savings = st.session_state.co2_savings
     
-    # Display chat messages
-    for message in st.session_state.ai_assistant_messages:
+    st.metric("Movies in Watchlist", watchlist_count)
+    st.metric("Estimated CO₂ Savings", f"{co2_savings:.1f} kg")
+    
+    # Explanation
+    st.info("""
+    **How we calculate environmental impact:**
+    - Streaming a movie at home saves approximately 2.5 kg of CO₂ compared to traveling to a theater
+    - This estimate is based on average car travel emissions and theater energy consumption
+    - By using our streaming recommendations, you're helping reduce your carbon footprint
+    """)
+    
+    # Visual representation
+    fig, ax = plt.subplots(figsize=(10, 6))
+    categories = ['Theater', 'Home Streaming']
+    emissions = [2.5, 0.5]  # Example values
+    colors = ['#ff6b6b', '#4ecdc4']
+    
+    bars = ax.bar(categories, emissions, color=colors)
+    ax.set_ylabel('CO₂ Emissions (kg)')
+    ax.set_title('CO₂ Emissions: Theater vs Home Streaming')
+    
+    # Add value labels on bars
+    for bar, value in zip(bars, emissions):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.05, 
+                f'{value} kg', ha='center', va='bottom')
+    
+    st.pyplot(fig)
+    
+    # Tips for reducing environmental impact
+    st.markdown("### 💡 Tips for Sustainable Streaming")
+    st.write("""
+    1. **Use energy-efficient devices:** LED TVs consume less power than plasma TVs
+    2. **Stream in standard definition:** HD and 4K streaming use significantly more energy
+    3. **Download instead of stream:** Downloading content once is more efficient than streaming multiple times
+    4. **Use renewable energy:** Consider powering your home with solar or wind energy
+    5. **Share your account:** Family sharing reduces the overall energy footprint
+    """)
+
+def render_ai_assistant_content():
+    """Render the AI assistant content"""
+    st.subheader("🤖 AI Assistant")
+    
+    # Initialize Groq client
+    try:
+        client = groq.Client(api_key=st.secrets["GROQ_API_KEY"])
+    except:
+        st.error("Groq API key not configured. Please check your secrets.toml file.")
+        return
+    
+    # Display chat history
+    for message in st.session_state.ai_chat_history:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
     
     # Chat input
-    if prompt := st.chat_input("Ask about movie recommendations..."):
+    if prompt := st.chat_input("Ask me for movie recommendations..."):
         # Add user message to chat history
-        st.session_state.ai_assistant_messages.append({"role": "user", "content": prompt})
+        st.session_state.ai_chat_history.append({"role": "user", "content": prompt})
         
         # Display user message
         with st.chat_message("user"):
             st.markdown(prompt)
         
-        # Generate AI response
+        # Generate assistant response
         with st.chat_message("assistant"):
             message_placeholder = st.empty()
-            message_placeholder.markdown("Thinking...")
+            full_response = ""
             
+            # Prepare context from user preferences
+            user_context = f"""
+            User Preferences:
+            - Liked movies: {', '.join(st.session_state.user_preferences.get('liked_movies', []))}
+            - Preferred genres: {', '.join(st.session_state.user_preferences.get('preferred_genres', []))}
+            - Preferred actors: {', '.join(st.session_state.user_preferences.get('preferred_actors', []))}
+            - Preferred directors: {', '.join(st.session_state.user_preferences.get('preferred_directors', []))}
+            """
+            
+            # Create messages for Groq
+            messages = [
+                {
+                    "role": "system",
+                    "content": f"""You are a movie recommendation assistant. Help users find movies they'll love based on their preferences.
+                    {user_context}
+                    Provide personalized recommendations with brief explanations.
+                    Be friendly and engaging in your responses."""
+                }
+            ]
+            
+            # Add chat history
+            for msg in st.session_state.ai_chat_history[-6:]:  # Keep last 6 messages for context
+                messages.append(msg)
+            
+            # Generate response
             try:
-                # Get user preferences for context
-                user_prefs = st.session_state.user_preferences
-                liked_movies = user_prefs.get('liked_movies', [])
-                preferred_genres = user_prefs.get('preferred_genres', [])
-                
-                # Create context for the AI
-                context = f"""
-                User preferences:
-                - Liked movies: {', '.join(liked_movies[:5]) if liked_movies else 'None yet'}
-                - Preferred genres: {', '.join(preferred_genres) if preferred_genres else 'None specified'}
-                
-                Current query: {prompt}
-                
-                Please provide helpful, personalized movie recommendations based on the user's preferences and query.
-                """
-                
-                # Initialize Groq client
-                client = groq.Client(api_key=st.secrets["GROQ_API_KEY"])
-                
-                # Generate response
                 response = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "You are a helpful movie recommendation assistant. Provide personalized movie suggestions based on the user's preferences and query. Keep responses concise and engaging."
-                        },
-                        *st.session_state.ai_assistant_messages,
-                        {
-                            "role": "user",
-                            "content": context
-                        }
-                    ],
+                    messages=messages,
                     temperature=0.7,
-                    max_tokens=1024,
-                    top_p=1,
+                    max_tokens=500,
                     stream=True
                 )
                 
                 # Stream the response
-                full_response = ""
                 for chunk in response:
                     if chunk.choices[0].delta.content is not None:
                         full_response += chunk.choices[0].delta.content
@@ -2232,27 +2270,28 @@ def render_ai_assistant_tab():
                 
                 message_placeholder.markdown(full_response)
                 
-                # Add assistant response to chat history
-                st.session_state.ai_assistant_messages.append({"role": "assistant", "content": full_response})
-                
             except Exception as e:
-                logging.error(f"AI assistant error: {str(e)}")
-                error_msg = "Sorry, I'm having trouble connecting to the AI service. Please try again later."
-                message_placeholder.markdown(error_msg)
-                st.session_state.ai_assistant_messages.append({"role": "assistant", "content": error_msg})
-    
-    # Clear chat button
-    if st.button("🗑️ Clear Conversation", key="clear_chat"):
-        st.session_state.ai_assistant_messages = [{
-            "role": "assistant", 
-            "content": "Hi! I'm your AI movie assistant. I can help you find great movies based on your preferences. What kind of movies are you interested in today?"
-        }]
-        st.rerun()
+                logging.error(f"Groq API error: {str(e)}")
+                full_response = "I'm sorry, I'm having trouble connecting to the recommendation service. Please try again later."
+                message_placeholder.markdown(full_response)
+        
+        # Add assistant response to chat history
+        st.session_state.ai_chat_history.append({"role": "assistant", "content": full_response})
+        
+        # Limit chat history to prevent excessive memory usage
+        if len(st.session_state.ai_chat_history) > 20:
+            st.session_state.ai_chat_history = st.session_state.ai_chat_history[-20:]
 
 def main_app():
     """Main application logic after login"""
     st.markdown(f'<h1 class="neon-title">🎬 Movie Recommender Pro</h1>', unsafe_allow_html=True)
     st.markdown(f'<div style="text-align: center; margin-bottom: 30px;">Welcome back, <strong>{st.session_state.username}</strong>!</div>', unsafe_allow_html=True)
+    
+    # Check for movie ID parameter to show details
+    query_params = st.experimental_get_query_params()
+    if 'movie_id' in query_params:
+        movie_id = int(query_params['movie_id'][0])
+        show_movie_details(movie_id, st.secrets["TMDB_API_KEY"])
     
     # Debug panel in sidebar
     with st.sidebar:
@@ -2263,20 +2302,21 @@ def main_app():
             st.json(st.session_state.user_preferences)
             st.write("User Vector:")
             st.write(st.session_state.user_vector)
+        
+        # Clear cache button
+        if st.button("🔄 Clear Cache", use_container_width=True):
+            st.session_state.tmdb_cache = {}
+            st.session_state.movie_details = {}
+            st.success("Cache cleared!")
     
-    # Simplified tabs
-    tab1, tab2, tab3 = st.tabs([
-        "Discover & Recommendations",
-        "Profile & Analytics",
-        "AI Assistant"
-    ])
+    # Main tabs
+    main_tabs = st.tabs(["Discover & Recommendations", "Profile & Analytics"])
     
-    with tab1:
+    with main_tabs[0]:
         render_discover_tab()
-    with tab2:
+    
+    with main_tabs[1]:
         render_profile_tab()
-    with tab3:
-        render_ai_assistant_tab()
 
 def main():
     """Main application entry point"""
@@ -2599,6 +2639,32 @@ def load_styles():
             --text: #ffffff;
         }
     </style>
+    """, unsafe_allow_html=True)
+    
+    # Add JavaScript for poster click handling
+    st.markdown("""
+    <script>
+        function streamlitScriptHandlerForMovie(movieId) {
+            const data = {movie_id: movieId};
+            window.parent.postMessage({
+                type: 'streamlit:setComponentValue',
+                value: JSON.stringify(data)
+            }, '*');
+        }
+        
+        // Listen for messages from Streamlit
+        window.addEventListener('message', function(event) {
+            if (event.data.type === 'streamlit:setComponentValue') {
+                const data = JSON.parse(event.data.value);
+                if (data.movie_id) {
+                    // Update URL with movie ID
+                    window.history.pushState({}, '', '?movie_id=' + data.movie_id);
+                    // Reload the page to show movie details
+                    window.location.reload();
+                }
+            }
+        });
+    </script>
     """, unsafe_allow_html=True)
     
     # Add animated background
