@@ -1963,8 +1963,3 @@ def main_app():
         render_profile_tab()
 
 
-# =========================================
-# APPLICATION ENTRY POINT
-# =========================================
-if __name__ == "__main__":
-    main()
