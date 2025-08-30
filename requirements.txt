@@ -29,6 +29,7 @@ requests
 beautifulsoup4
 tmdbv3api
 bcrypt
+groq
 
 # Utility
 astor
