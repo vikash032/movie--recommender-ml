@@ -1962,32 +1962,6 @@ def main_app():
     with tabs[9]:
         render_profile_tab()
 
-def main():
-    """Main application entry point"""
-    # High contrast mode toggle
-    if st.session_state.high_contrast:
-        st.markdown('<style>:root {--primary: #ff0000; --secondary: #00ffff; --accent: #ffff00; --background: #000000; --card: #111111; --text: #ffffff;}</style>', unsafe_allow_html=True)
-    
-    if not st.session_state.logged_in:
-        render_login_signup()
-    else:
-        try:
-            # Load data if not already cached
-            if st.session_state.cached_data is None:
-                with st.spinner("Loading movie data. This may take a few minutes..."):
-                    api_key = st.secrets["TMDB_API_KEY"]
-                    movies_df, ratings_df, precomputed = load_data(api_key)
-                    st.session_state.cached_data = (movies_df, ratings_df, precomputed)
-            
-            # Load deep learning model
-            global dl_model
-            dl_model = train_dl_model()
-            
-            # Render main application
-            main_app()
-        except Exception as e:
-            logging.error(f"Main app error: {str(e)}")
-            st.error(f"Application error: {str(e)}")
 
 # =========================================
 # APPLICATION ENTRY POINT
