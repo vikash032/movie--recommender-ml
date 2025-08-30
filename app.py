@@ -2287,3 +2287,21 @@ def load_styles():
     
     # Add animated background
     st.markdown('<div class="animated-bg"></div>', unsafe_allow_html=True)
+
+# APPLICATION ENTRY POINT
+# =========================================
+if __name__ == "__main__":
+    # Apply custom styles
+    load_styles()
+    
+    # Configure page
+    configure_page()
+    
+    # Initialize session state
+    initialize_session_state()
+    
+    # Load deep learning model
+    dl_model = None
+    
+    # Run main application
+    main()
